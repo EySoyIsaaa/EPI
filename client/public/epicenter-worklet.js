@@ -6,8 +6,9 @@
 
   // client/src/worklets/epicenter-worklet.ts
   var DENORMAL_FLOOR = 1e-24;
+  var TWO_PI = Math.PI * 2;
   var BiquadFilter = class {
-    constructor(type, freq, sr, Q = 1) {
+    constructor(type, freq, sr, Q = 0.707) {
       this.type = type;
       this.freq = freq;
       this.sr = sr;
@@ -26,30 +27,48 @@
     denormalFloor(value) {
       return Math.abs(value) < DENORMAL_FLOOR ? 0 : value;
     }
-    updateCoeffs(type, freq, Q = 1) {
+    updateCoeffs(type, freq, Q = 0.707) {
       this.type = type;
       this.freq = freq;
       this.Q = Q;
-      const clampedFreq = Math.max(5, Math.min(freq, this.sr / 2.5));
-      const clampedQ = Math.max(0.1, Math.min(Q, 10));
-      const omega = 2 * Math.PI * clampedFreq / this.sr;
+      const clampedFreq = Math.max(10, Math.min(freq, this.sr * 0.45));
+      const clampedQ = Math.max(0.2, Math.min(Q, 12));
+      const omega = TWO_PI * clampedFreq / this.sr;
       const sinOmega = Math.sin(omega);
       const cosOmega = Math.cos(omega);
       const alpha = sinOmega / (2 * clampedQ);
-      let b0, b1, b2;
-      let a0, a1, a2;
-      if (type === "lowpass") {
-        b0 = (1 - cosOmega) / 2;
-        b1 = 1 - cosOmega;
-        b2 = (1 - cosOmega) / 2;
-      } else {
-        b0 = (1 + cosOmega) / 2;
-        b1 = -(1 + cosOmega);
-        b2 = (1 + cosOmega) / 2;
+      let b0 = 0;
+      let b1 = 0;
+      let b2 = 0;
+      let a0 = 1;
+      let a1 = 0;
+      let a2 = 0;
+      switch (type) {
+        case "lowpass":
+          b0 = (1 - cosOmega) * 0.5;
+          b1 = 1 - cosOmega;
+          b2 = (1 - cosOmega) * 0.5;
+          a0 = 1 + alpha;
+          a1 = -2 * cosOmega;
+          a2 = 1 - alpha;
+          break;
+        case "highpass":
+          b0 = (1 + cosOmega) * 0.5;
+          b1 = -(1 + cosOmega);
+          b2 = (1 + cosOmega) * 0.5;
+          a0 = 1 + alpha;
+          a1 = -2 * cosOmega;
+          a2 = 1 - alpha;
+          break;
+        case "bandpass":
+          b0 = alpha;
+          b1 = 0;
+          b2 = -alpha;
+          a0 = 1 + alpha;
+          a1 = -2 * cosOmega;
+          a2 = 1 - alpha;
+          break;
       }
-      a0 = 1 + alpha;
-      a1 = -2 * cosOmega;
-      a2 = 1 - alpha;
       this.b0 = b0 / a0;
       this.b1 = b1 / a0;
       this.b2 = b2 / a0;
@@ -57,25 +76,44 @@
       this.a2 = a2 / a0;
     }
     process(sample) {
-      const cleanSample = this.denormalFloor(sample);
-      const y0 = this.b0 * cleanSample + this.b1 * this.x1 + this.b2 * this.x2 - this.a1 * this.y1 - this.a2 * this.y2;
+      const clean = this.denormalFloor(sample);
+      const y0 = this.b0 * clean + this.b1 * this.x1 + this.b2 * this.x2 - this.a1 * this.y1 - this.a2 * this.y2;
       this.x2 = this.denormalFloor(this.x1);
-      this.x1 = this.denormalFloor(cleanSample);
+      this.x1 = clean;
       this.y2 = this.denormalFloor(this.y1);
       this.y1 = this.denormalFloor(y0);
       return this.denormalFloor(y0);
     }
     reset() {
-      this.x1 = this.x2 = this.y1 = this.y2 = 0;
+      this.x1 = 0;
+      this.x2 = 0;
+      this.y1 = 0;
+      this.y2 = 0;
+    }
+  };
+  var EnvelopeFollower = class {
+    constructor(attackCoeff, releaseCoeff) {
+      this.attackCoeff = attackCoeff;
+      this.releaseCoeff = releaseCoeff;
+      __publicField(this, "value", 0);
+    }
+    process(input) {
+      const x = Math.abs(input);
+      const coeff = x > this.value ? this.attackCoeff : this.releaseCoeff;
+      this.value = x + coeff * (this.value - x);
+      return this.value;
+    }
+    reset() {
+      this.value = 0;
     }
   };
   var EpicenterProcessor = class extends AudioWorkletProcessor {
     constructor(options) {
       super();
       __publicField(this, "channels", []);
-      __publicField(this, "lastSweepFreq", 45);
-      __publicField(this, "lastWidth", 50);
-      __publicField(this, "lastIntensity", 50);
+      __publicField(this, "monoState", null);
+      __publicField(this, "lastSweepFreq", -1);
+      __publicField(this, "lastWidth", -1);
     }
     static get parameterDescriptors() {
       return [
@@ -89,41 +127,106 @@
     denormalFloor(value) {
       return Math.abs(value) < DENORMAL_FLOOR ? 0 : value;
     }
-    ensureChannelState(numChannels, params) {
+    coeffFromMs(ms) {
+      const samples = Math.max(1, ms * sampleRate / 1e3);
+      return Math.exp(-1 / samples);
+    }
+    createChannelState(params) {
+      const { crossoverHz, bodyHz, subTopHz } = this.getDerivedFrequencies(params.sweepFreq, params.width);
+      return {
+        voiceHighpass: new BiquadFilter("highpass", crossoverHz, sampleRate, 0.707),
+        bassLowpass: new BiquadFilter("lowpass", crossoverHz * 1.15, sampleRate, 0.707),
+        lowMidBody: new BiquadFilter("bandpass", bodyHz, sampleRate, 0.85),
+        lowMidDip: new BiquadFilter("bandpass", bodyHz * 1.18, sampleRate, 1.1),
+        subLowpass: new BiquadFilter("lowpass", subTopHz, sampleRate, 0.707),
+        outputDcHighpass: new BiquadFilter("highpass", 18, sampleRate, 0.707)
+      };
+    }
+    createMonoState(params) {
+      const { detector60, detector80, detector110, synthLowHz, synthHighHz } = this.getDerivedFrequencies(params.sweepFreq, params.width);
+      return {
+        band60: new BiquadFilter("bandpass", detector60, sampleRate, 1.35),
+        band80: new BiquadFilter("bandpass", detector80, sampleRate, 1.55),
+        band110: new BiquadFilter("bandpass", detector110, sampleRate, 1.8),
+        monoLowpass: new BiquadFilter("lowpass", 120, sampleRate, 0.707),
+        diffHighpass: new BiquadFilter("highpass", 140, sampleRate, 0.707),
+        synthHighpass: new BiquadFilter("highpass", synthHighHz, sampleRate, 0.707),
+        synthLowpass: new BiquadFilter("lowpass", synthLowHz, sampleRate, 0.707),
+        detectorEnv: new EnvelopeFollower(this.coeffFromMs(7), this.coeffFromMs(95)),
+        monoEnv: new EnvelopeFollower(this.coeffFromMs(12), this.coeffFromMs(160)),
+        diffEnv: new EnvelopeFollower(this.coeffFromMs(12), this.coeffFromMs(160)),
+        gateEnv: new EnvelopeFollower(this.coeffFromMs(25), this.coeffFromMs(240)),
+        synthLevelEnv: new EnvelopeFollower(this.coeffFromMs(18), this.coeffFromMs(180)),
+        lastDetector: 0,
+        flipState: 1,
+        holdSamples: 0
+      };
+    }
+    getDerivedFrequencies(sweepFreq, width) {
+      const sweepNorm = (Math.max(27, Math.min(63, sweepFreq)) - 27) / 36;
+      const widthNorm = Math.max(0, Math.min(100, width)) / 100;
+      const detector60 = 55 + sweepNorm * 10;
+      const detector80 = 75 + sweepNorm * 10;
+      const detector110 = 100 + sweepNorm * 15;
+      const crossoverHz = 105 + widthNorm * 30;
+      const bodyHz = 95 + sweepNorm * 20;
+      const subTopHz = 58 + widthNorm * 10;
+      const synthLowHz = 55 + widthNorm * 10;
+      const synthHighHz = 22 + sweepNorm * 6;
+      return {
+        detector60,
+        detector80,
+        detector110,
+        crossoverHz,
+        bodyHz,
+        subTopHz,
+        synthLowHz,
+        synthHighHz
+      };
+    }
+    ensureState(numChannels, params) {
       while (this.channels.length < numChannels) {
-        const state = {
-          lowpassHarm: new BiquadFilter("lowpass", params.sweepFreq * 4, sampleRate, 0.8),
-          highpassHarm: new BiquadFilter("highpass", params.sweepFreq * 1.5, sampleRate, 0.8),
-          envelopeFilter: new BiquadFilter("lowpass", 25, sampleRate, 0.707),
-          bassSmooth: new BiquadFilter("lowpass", params.sweepFreq * 1.1, sampleRate, 0.707),
-          voiceHighpass: new BiquadFilter("highpass", 150, sampleRate, 0.707),
-          flipState1: 1,
-          lastSample1: 0,
-          flipState2: 1,
-          lastSample2: 0,
-          flipCounter1: 0,
-          flipCounter2: 0
-        };
-        this.channels.push(state);
+        this.channels.push(this.createChannelState(params));
       }
-      const paramsChanged = params.sweepFreq !== this.lastSweepFreq || params.width !== this.lastWidth;
-      if (paramsChanged) {
-        for (const state of this.channels) {
-          state.lowpassHarm.updateCoeffs("lowpass", params.sweepFreq * 4, 0.8);
-          state.highpassHarm.updateCoeffs("highpass", params.sweepFreq * 1.5, 0.8);
-          state.bassSmooth.updateCoeffs("lowpass", params.sweepFreq * 1.1, 0.707);
-        }
+      if (!this.monoState) {
+        this.monoState = this.createMonoState(params);
         this.lastSweepFreq = params.sweepFreq;
         this.lastWidth = params.width;
+        return;
       }
+      if (params.sweepFreq === this.lastSweepFreq && params.width === this.lastWidth) {
+        return;
+      }
+      const derived = this.getDerivedFrequencies(params.sweepFreq, params.width);
+      for (const state of this.channels) {
+        state.voiceHighpass.updateCoeffs("highpass", derived.crossoverHz, 0.707);
+        state.bassLowpass.updateCoeffs("lowpass", derived.crossoverHz * 1.15, 0.707);
+        state.lowMidBody.updateCoeffs("bandpass", derived.bodyHz, 0.85);
+        state.lowMidDip.updateCoeffs("bandpass", derived.bodyHz * 1.18, 1.1);
+        state.subLowpass.updateCoeffs("lowpass", derived.subTopHz, 0.707);
+      }
+      this.monoState.band60.updateCoeffs("bandpass", derived.detector60, 1.35);
+      this.monoState.band80.updateCoeffs("bandpass", derived.detector80, 1.55);
+      this.monoState.band110.updateCoeffs("bandpass", derived.detector110, 1.8);
+      this.monoState.synthHighpass.updateCoeffs("highpass", derived.synthHighHz, 0.707);
+      this.monoState.synthLowpass.updateCoeffs("lowpass", derived.synthLowHz, 0.707);
+      this.lastSweepFreq = params.sweepFreq;
+      this.lastWidth = params.width;
+    }
+    computeGate(monoEnv, diffEnv, weightedDetectorEnv) {
+      const musicRatio = diffEnv / (monoEnv + 1e-6);
+      const detectorActivity = Math.min(1, weightedDetectorEnv * 9.5);
+      const musicScore = Math.max(0, Math.min(1, musicRatio * 3.2));
+      const gateTarget = detectorActivity * (0.25 + musicScore * 0.75);
+      return gateTarget;
     }
     process(inputs, outputs, parameters) {
       const input = inputs[0];
       const output = outputs[0];
-      if (!input || input.length === 0) {
+      if (!input || input.length === 0 || !output || output.length === 0) {
         return true;
       }
-      const numChannels = input.length;
+      const numChannels = Math.min(input.length, output.length);
       const sweepFreq = parameters.sweepFreq[0];
       const width = parameters.width[0];
       const intensity = parameters.intensity[0];
@@ -139,54 +242,65 @@
         }
         return true;
       }
-      const widthFactor = width / 100;
-      const bassGain = intensity / 100 * 2.5;
-      const balanceFactor = balance / 100;
-      const voiceWeight = 1 - balanceFactor * 0.4;
-      const bassWeight = 0.5 + balanceFactor * 0.4;
-      const volumeGain = Math.min(volume / 100, 1);
-      this.ensureChannelState(numChannels, { sweepFreq, width });
+      this.ensureState(numChannels, { sweepFreq, width });
+      const monoState = this.monoState;
+      const blockSize = input[0].length;
+      const subBuffer = new Float32Array(blockSize);
+      const intensityNorm = Math.max(0, Math.min(100, intensity)) / 100;
+      const balanceNorm = Math.max(0, Math.min(100, balance)) / 100;
+      const widthNorm = Math.max(0, Math.min(100, width)) / 100;
+      const volumeGain = Math.max(0, Math.min(1.5, volume / 100));
+      const synthAmount = 0.45 + intensityNorm * 1.45;
+      const bassProgramAmount = 0.6 + balanceNorm * 0.35;
+      const lowMidDipAmount = (0.12 + intensityNorm * 0.28) * (0.55 + widthNorm * 0.45);
+      const gateHoldSamples = Math.floor(sampleRate * (0.025 + intensityNorm * 0.06));
+      for (let i = 0; i < blockSize; i++) {
+        const left = input[0][i] ?? 0;
+        const right = (numChannels > 1 ? input[1][i] : left) ?? left;
+        const mono = this.denormalFloor((left + right) * 0.5);
+        const diff = this.denormalFloor((left - right) * 0.5);
+        const monoBand = monoState.band60.process(mono) * 1 + monoState.band80.process(mono) * 0.68 + monoState.band110.process(mono) * 0.42;
+        const weightedDetector = this.denormalFloor(monoBand * 0.6 + monoState.monoLowpass.process(mono) * 0.12);
+        const detectorEnv = monoState.detectorEnv.process(weightedDetector);
+        const monoEnv = monoState.monoEnv.process(mono);
+        const diffEnv = monoState.diffEnv.process(monoState.diffHighpass.process(diff));
+        if (monoState.lastDetector <= 0 && weightedDetector > 0) {
+          monoState.flipState *= -1;
+        }
+        monoState.lastDetector = weightedDetector;
+        const rawHalf = monoState.flipState * detectorEnv;
+        let synth = monoState.synthHighpass.process(rawHalf);
+        synth = monoState.synthLowpass.process(synth);
+        const gateTarget = this.computeGate(monoEnv, diffEnv, detectorEnv);
+        const gateValue = monoState.gateEnv.process(gateTarget);
+        if (gateTarget > 0.3) {
+          monoState.holdSamples = gateHoldSamples;
+        } else if (monoState.holdSamples > 0) {
+          monoState.holdSamples--;
+        }
+        const holdFactor = monoState.holdSamples > 0 ? 1 : 0;
+        const remixGate = Math.max(gateValue, holdFactor * 0.45);
+        const leveledSynth = monoState.synthLevelEnv.process(synth) * Math.sign(synth);
+        const protectedSynth = Math.tanh((synth * 0.65 + leveledSynth * 0.35) * 2.1) * 0.72;
+        subBuffer[i] = this.denormalFloor(protectedSynth * synthAmount * remixGate);
+      }
       for (let ch = 0; ch < numChannels; ch++) {
         const inChan = input[ch];
         const outChan = output[ch];
         const state = this.channels[ch];
-        for (let i = 0; i < inChan.length; i++) {
-          let sample = this.denormalFloor(inChan[i]);
-          let harmonic = state.lowpassHarm.process(sample);
-          harmonic = state.highpassHarm.process(harmonic);
-          harmonic = this.denormalFloor(harmonic);
-          const env = Math.abs(harmonic);
-          let envelope = state.envelopeFilter.process(env);
-          envelope = this.denormalFloor(envelope);
-          const harmonicSmoothed = (state.lastSample1 + harmonic) * 0.5;
-          if (state.lastSample1 <= 0 && harmonic > 0) {
-            state.flipCounter1 = 0;
-            state.flipState1 *= -1;
-          }
-          state.flipCounter1++;
-          state.lastSample1 = harmonic;
-          const halfSignal = state.flipState1 * envelope;
-          const halfSmoothed = (state.lastSample2 + halfSignal) * 0.5;
-          if (state.lastSample2 <= 0 && halfSignal > 0) {
-            state.flipCounter2 = 0;
-            state.flipState2 *= -1;
-          }
-          state.flipCounter2++;
-          state.lastSample2 = halfSignal;
-          const quarterSignal = state.flipState2 * envelope;
-          let bass = halfSignal * 0.6 + quarterSignal * 0.4;
-          bass = state.bassSmooth.process(bass);
-          bass = this.denormalFloor(bass);
-          const restoredBass = bass * bassGain;
-          const voice = state.voiceHighpass.process(sample);
-          const mixed = voice * voiceWeight + restoredBass * bassWeight;
-          let output_sample = mixed * volumeGain;
-          if (output_sample > 0.95) {
-            output_sample = 0.95 + Math.tanh((output_sample - 0.95) * 2) * 0.05;
-          } else if (output_sample < -0.95) {
-            output_sample = -0.95 + Math.tanh((output_sample + 0.95) * 2) * 0.05;
-          }
-          outChan[i] = this.denormalFloor(output_sample);
+        for (let i = 0; i < blockSize; i++) {
+          const sample = this.denormalFloor(inChan[i]);
+          const voicePath = state.voiceHighpass.process(sample);
+          const bassProgram = state.bassLowpass.process(sample);
+          const body = state.lowMidBody.process(sample);
+          const dip = state.lowMidDip.process(sample);
+          const shapedBassProgram = bassProgram * bassProgramAmount + body * (0.18 + balanceNorm * 0.12) - dip * lowMidDipAmount;
+          const generatedSub = state.subLowpass.process(subBuffer[i]);
+          let mixed = voicePath + shapedBassProgram + generatedSub;
+          mixed *= volumeGain;
+          mixed = Math.tanh(mixed * 1.08) / Math.tanh(1.08);
+          mixed = state.outputDcHighpass.process(mixed);
+          outChan[i] = this.denormalFloor(mixed);
         }
       }
       return true;
