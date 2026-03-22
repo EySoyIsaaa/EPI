@@ -1,13 +1,17 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
-  <title id="title">Hi-Res Logo</title>
-  <desc id="desc">Logo vectorial compacto para la sección Hi-Res.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Hi-Res Audio</title>
+  <desc id="desc">Hi-Res Audio badge matching the provided gold and black artwork.</desc>
   <defs>
-    <linearGradient id="ring" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#fbbf24" />
-      <stop offset="100%" stop-color="#fde68a" />
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f7dfab"/>
+      <stop offset="55%" stop-color="#f7bf5a"/>
+      <stop offset="100%" stop-color="#d68929"/>
     </linearGradient>
   </defs>
-  <circle cx="32" cy="32" r="28" fill="#18181b" stroke="url(#ring)" stroke-width="4" />
-  <path d="M18 41V23h5v7h10v-7h5v18h-5v-7H23v7z" fill="#fde68a" />
-  <path d="M43 23h3.5c5.247 0 9.5 4.253 9.5 9.5S51.747 42 46.5 42H43zm5 4v11h1.5a5.5 5.5 0 0 0 0-11z" fill="#fde68a" />
+  <rect width="512" height="512" fill="#d28a2e"/>
+  <rect x="3" y="3" width="506" height="506" fill="url(#gold)" stroke="#b8832d" stroke-width="6"/>
+  <path d="M18 246 C 128 304, 246 308, 494 246 L 494 494 L 18 494 Z" fill="#000000"/>
+  <path d="M18 246 C 128 304, 246 308, 494 246" fill="none" stroke="#c2862b" stroke-width="6"/>
+  <text x="36" y="218" font-size="132" font-family="Arial Black, Helvetica, Arial, sans-serif" fill="#000000">Hi-Res</text>
+  <text x="40" y="448" font-size="132" font-family="Arial Black, Helvetica, Arial, sans-serif" fill="#dc902c">AUDIO</text>
 </svg>

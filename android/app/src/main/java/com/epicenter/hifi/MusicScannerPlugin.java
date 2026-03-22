@@ -4,6 +4,9 @@ import android.Manifest;
 import android.content.ContentResolver;
 import android.content.ContentUris;
 import android.database.Cursor;
+import android.media.MediaExtractor;
+import android.media.MediaFormat;
+import android.media.MediaMetadataRetriever;
 import android.net.Uri;
 import android.os.Build;
 import android.provider.MediaStore;
@@ -33,6 +36,63 @@ import java.io.OutputStream;
   }
 )
 public class MusicScannerPlugin extends Plugin {
+
+  private static class AudioFormatInfo {
+    Integer bitDepth;
+    Integer sampleRate;
+    Integer bitrate;
+  }
+
+  private AudioFormatInfo getAudioFormatInfo(Uri contentUri) {
+    AudioFormatInfo info = new AudioFormatInfo();
+    MediaMetadataRetriever retriever = new MediaMetadataRetriever();
+    MediaExtractor extractor = new MediaExtractor();
+
+    try {
+      retriever.setDataSource(getContext(), contentUri);
+      String bitrateValue = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE);
+      if (bitrateValue != null && !bitrateValue.isEmpty()) {
+        info.bitrate = Integer.parseInt(bitrateValue);
+      }
+    } catch (Exception ignored) {
+    }
+
+    try {
+      extractor.setDataSource(getContext(), contentUri, null);
+      for (int i = 0; i < extractor.getTrackCount(); i++) {
+        MediaFormat format = extractor.getTrackFormat(i);
+        String mime = format.getString(MediaFormat.KEY_MIME);
+        if (mime == null || !mime.startsWith("audio/")) {
+          continue;
+        }
+
+        if (format.containsKey(MediaFormat.KEY_SAMPLE_RATE)) {
+          info.sampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE);
+        }
+
+        if (info.bitrate == null && format.containsKey(MediaFormat.KEY_BIT_RATE)) {
+          info.bitrate = format.getInteger(MediaFormat.KEY_BIT_RATE);
+        }
+
+        if (format.containsKey("bits-per-sample")) {
+          info.bitDepth = format.getInteger("bits-per-sample");
+        }
+        break;
+      }
+    } catch (Exception ignored) {
+    } finally {
+      try {
+        retriever.release();
+      } catch (Exception ignored) {
+      }
+      try {
+        extractor.release();
+      } catch (Exception ignored) {
+      }
+    }
+
+    return info;
+  }
 
   // Directorio de caché para archivos de audio temporales
   private File getAudioCacheDir() {
@@ -360,10 +420,13 @@ public class MusicScannerPlugin extends Plugin {
           Uri.parse("content://media/external/audio/albumart"),
           albumId
         );
+        AudioFormatInfo formatInfo = getAudioFormatInfo(contentUri);
 
         // Detectar si es Hi-Res basado en el formato
         boolean isHiRes = false;
-        if (mimeType != null) {
+        if (formatInfo.bitDepth != null && formatInfo.sampleRate != null) {
+          isHiRes = formatInfo.bitDepth >= 16 && formatInfo.sampleRate >= 44100;
+        } else if (mimeType != null) {
           isHiRes = mimeType.contains("flac") || 
                     mimeType.contains("wav") || 
                     mimeType.contains("aiff") ||
@@ -382,6 +445,9 @@ public class MusicScannerPlugin extends Plugin {
         fileObj.put("mimeType", mimeType != null ? mimeType : "audio/mpeg");
         fileObj.put("contentUri", contentUri.toString());
         fileObj.put("albumArtUri", albumArtUri.toString());
+        if (formatInfo.bitDepth != null) fileObj.put("bitDepth", formatInfo.bitDepth);
+        if (formatInfo.sampleRate != null) fileObj.put("sampleRate", formatInfo.sampleRate);
+        if (formatInfo.bitrate != null) fileObj.put("bitrate", formatInfo.bitrate);
         fileObj.put("isHiRes", isHiRes);
 
         musicFiles.put(fileObj);

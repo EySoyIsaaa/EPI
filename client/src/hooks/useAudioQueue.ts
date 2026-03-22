@@ -28,6 +28,7 @@ export interface Track {
   coverUrl?: string;
   bitDepth?: number;
   sampleRate?: number;
+  bitrate?: number;
   isHiRes?: boolean;
   sourceUri?: string;
   sourceType?: 'file' | 'media-store';
@@ -133,6 +134,7 @@ export function useAudioQueue(): QueueController {
               coverUrl,
               bitDepth: metadata.bitDepth,
               sampleRate: metadata.sampleRate,
+              bitrate: metadata.bitrate,
               isHiRes: metadata.isHiRes,
               sourceUri: metadata.sourceUri,
               sourceType: metadata.sourceType,
@@ -202,6 +204,7 @@ export function useAudioQueue(): QueueController {
     coverBase64?: string;
     bitDepth?: number;
     sampleRate?: number;
+    bitrate?: number;
     isHiRes?: boolean;
   }> => {
     try {
@@ -230,6 +233,7 @@ export function useAudioQueue(): QueueController {
 
       const bitDepth = metadata.format?.bitsPerSample;
       const sampleRate = metadata.format?.sampleRate;
+      const bitrate = metadata.format?.bitrate;
       const isHiRes = isHiResQuality(bitDepth, sampleRate);
 
       return {
@@ -240,6 +244,7 @@ export function useAudioQueue(): QueueController {
         coverBase64,
         bitDepth,
         sampleRate,
+        bitrate,
         isHiRes,
       };
     } catch (error) {
@@ -306,6 +311,7 @@ export function useAudioQueue(): QueueController {
           duration: metadata.duration,
           bitDepth: metadata.bitDepth,
           sampleRate: metadata.sampleRate,
+          bitrate: metadata.bitrate,
           isHiRes: metadata.isHiRes,
           coverBase64: metadata.coverBase64,
           fileName: file.name,
@@ -330,15 +336,16 @@ export function useAudioQueue(): QueueController {
         title: metadata.title,
         artist: metadata.artist,
         duration: metadata.duration,
-        coverUrl: metadata.coverUrl,
+        coverUrl: metadata.coverBase64 || metadata.coverUrl,
         bitDepth: metadata.bitDepth,
         sampleRate: metadata.sampleRate,
+        bitrate: metadata.bitrate,
         isHiRes: metadata.isHiRes,
         sourceType: 'file',
       };
       
-      if (metadata.coverUrl) {
-        coverUrlsRef.current.set(id, metadata.coverUrl);
+      if (metadata.coverBase64 || metadata.coverUrl) {
+        coverUrlsRef.current.set(id, metadata.coverBase64 || metadata.coverUrl!);
       }
       
       newTracks.push(track);
@@ -402,7 +409,8 @@ export function useAudioQueue(): QueueController {
       
       const bitDepth = trackInfo.bitDepth;
       const sampleRate = trackInfo.sampleRate;
-      const isHiRes = isHiResQuality(bitDepth, sampleRate);
+      const bitrate = trackInfo.bitrate;
+      const isHiRes = typeof trackInfo.isHiRes === 'boolean' ? trackInfo.isHiRes : isHiResQuality(bitDepth, sampleRate);
 
       // Obtener carátula del álbum si está disponible
       let coverBase64: string | undefined;
@@ -430,6 +438,7 @@ export function useAudioQueue(): QueueController {
         fingerprint,
         bitDepth,
         sampleRate,
+        bitrate,
         isHiRes,
         albumArtUri: trackInfo.albumArtUri,
         coverBase64,
@@ -454,6 +463,7 @@ export function useAudioQueue(): QueueController {
         sourceType: metadata.sourceType,
         bitDepth,
         sampleRate,
+        bitrate,
         isHiRes,
         albumArtUri: trackInfo.albumArtUri,
         coverUrl: coverBase64,

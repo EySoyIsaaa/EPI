@@ -18,6 +18,7 @@ export interface StoredTrackMetadata {
   duration: number;
   bitDepth?: number;
   sampleRate?: number;
+  bitrate?: number;
   isHiRes?: boolean;
   coverBase64?: string;
   fileName: string;

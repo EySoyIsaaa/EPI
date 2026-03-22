@@ -1,6 +1,6 @@
 /**
  * Glassmorphism Nocturno Design
- * Hook integrado que combina Epicenter DSP + Ecualizador de 12 bandas
+ * Hook integrado que combina Epicenter DSP + Ecualizador de 31 bandas
  * Arquitectura: AudioElement → Epicenter Worklet → Equalizer Filters → Destination
  * 
  * v1.1.1 - Agregado soporte para:
@@ -132,6 +132,7 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
   });
   const crossfadeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isCrossfadingRef = useRef(false);
+  const pendingCrossfadeInRef = useRef(false);
   
   const [isReady, setIsReady] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -281,13 +282,13 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
     const duration = crossfadeConfigRef.current.duration;
     
     isCrossfadingRef.current = true;
-    
-    // Fade out gradual
-    masterGainRef.current.gain.setValueAtTime(1.0, ctx.currentTime);
+
+    masterGainRef.current.gain.cancelScheduledValues(ctx.currentTime);
+    masterGainRef.current.gain.setValueAtTime(masterGainRef.current.gain.value, ctx.currentTime);
     masterGainRef.current.gain.linearRampToValueAtTime(0.0, ctx.currentTime + duration);
-    
-    // Al terminar el fade out, llamar al callback para siguiente canción
+
     crossfadeTimeoutRef.current = setTimeout(() => {
+      crossfadeTimeoutRef.current = null;
       if (onTrackEndedRef.current) {
         onTrackEndedRef.current();
       }
@@ -302,12 +303,12 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
     const ctx = audioContextRef.current;
     const duration = crossfadeConfigRef.current.duration;
     
+    masterGainRef.current.gain.cancelScheduledValues(ctx.currentTime);
+
     if (crossfadeConfigRef.current.enabled) {
-      // Empezar en 0 y subir gradualmente
       masterGainRef.current.gain.setValueAtTime(0.0, ctx.currentTime);
       masterGainRef.current.gain.linearRampToValueAtTime(1.0, ctx.currentTime + duration);
     } else {
-      // Sin crossfade, volumen normal inmediato
       masterGainRef.current.gain.setValueAtTime(1.0, ctx.currentTime);
     }
   }, []);
@@ -389,8 +390,10 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
     const onLoadedMetadata = () => {
       setDuration(audioElement.duration);
       setIsReady(true);
-      // Iniciar fade in si está habilitado
-      startCrossfadeIn();
+      pendingCrossfadeInRef.current = crossfadeConfigRef.current.enabled;
+      if (!crossfadeConfigRef.current.enabled && masterGainRef.current && audioContextRef.current) {
+        masterGainRef.current.gain.setValueAtTime(1.0, audioContextRef.current.currentTime);
+      }
     };
     
     const onTimeUpdate = () => {
@@ -431,9 +434,13 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
     if (audioContextRef.current.state === 'suspended') {
       audioContextRef.current.resume();
     }
-    element.play();
+    void element.play();
+    if (pendingCrossfadeInRef.current) {
+      startCrossfadeIn();
+      pendingCrossfadeInRef.current = false;
+    }
     setIsPlaying(true);
-  }, []);
+  }, [startCrossfadeIn]);
 
   const pause = useCallback(() => {
     if (!audioElementRef.current) return;

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Epicenter app logo</title>
+  <desc id="desc">Dark rounded square with a red lightning bolt.</desc>
+  <rect x="80" y="76" width="352" height="360" rx="76" fill="#2d2e38" />
+  <path
+    d="M286 118c12 0 19 13 13 23l-58 102h76c13 0 21 15 13 26L232 411c-9 13-29 4-26-11l19-78h-56c-14 0-22-15-15-27l89-156c4-8 12-12 21-12h22z"
+    fill="#ff3048" />
+</svg>

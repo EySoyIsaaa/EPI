@@ -1,6 +1,5 @@
 /**
- * useMediaSession - Hook para controles de media en notificaciones y pantalla bloqueada
- * Implementa la Media Session API para Android/iOS
+ * Hook para controles de reproducción en notificaciones y pantalla bloqueada.
  */
 
 import { useEffect, useCallback, useRef } from 'react';
@@ -9,7 +8,7 @@ export interface MediaMetadata {
   title: string;
   artist: string;
   album?: string;
-  artwork?: string; // URL de la carátula
+  artwork?: string;
 }
 
 export interface MediaSessionHandlers {
@@ -29,59 +28,50 @@ export interface MediaSessionController {
   setHandlers: (handlers: MediaSessionHandlers) => void;
 }
 
+const FALLBACK_ARTWORK = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><defs><linearGradient id='g' x1='0%' y1='0%' x2='100%' y2='100%'><stop offset='0%' stop-color='%2306b6d4'/><stop offset='100%' stop-color='%238b5cf6'/></linearGradient></defs><rect width='512' height='512' rx='120' fill='%2309090b'/><circle cx='256' cy='256' r='164' fill='none' stroke='url(%23g)' stroke-width='28'/><path d='M184 308h24l18-96 30 140 28-116 16 72h28' fill='none' stroke='url(%23g)' stroke-linecap='round' stroke-linejoin='round' stroke-width='26'/></svg>";
+
+const toAbsoluteUrl = (src?: string) => {
+  if (!src) return `${window.location.origin}${FALLBACK_ARTWORK}`;
+  if (src.startsWith('data:') || src.startsWith('http://') || src.startsWith('https://') || src.startsWith('blob:')) {
+    return src;
+  }
+  return new URL(src, window.location.origin).href;
+};
+
+const inferArtworkType = (src: string) => {
+  if (src.startsWith('data:image/png')) return 'image/png';
+  if (src.startsWith('data:image/webp')) return 'image/webp';
+  if (src.startsWith('data:image/svg+xml')) return 'image/svg+xml';
+  if (src.startsWith('data:image/jpeg') || src.startsWith('data:image/jpg')) return 'image/jpeg';
+  if (src.endsWith('.png')) return 'image/png';
+  if (src.endsWith('.webp')) return 'image/webp';
+  if (src.endsWith('.svg')) return 'image/svg+xml';
+  return 'image/jpeg';
+};
+
 export function useMediaSession(): MediaSessionController {
   const handlersRef = useRef<MediaSessionHandlers>({});
-
-  // Verificar soporte de Media Session API
   const isSupported = 'mediaSession' in navigator;
 
-  // Configurar action handlers
   useEffect(() => {
     if (!isSupported) return;
 
     const session = navigator.mediaSession;
-
-    // Play
-    session.setActionHandler('play', () => {
-      handlersRef.current.onPlay?.();
-    });
-
-    // Pause
-    session.setActionHandler('pause', () => {
-      handlersRef.current.onPause?.();
-    });
-
-    // Previous track
-    session.setActionHandler('previoustrack', () => {
-      handlersRef.current.onPreviousTrack?.();
-    });
-
-    // Next track
-    session.setActionHandler('nexttrack', () => {
-      handlersRef.current.onNextTrack?.();
-    });
-
-    // Seek to specific time
+    session.setActionHandler('play', () => handlersRef.current.onPlay?.());
+    session.setActionHandler('pause', () => handlersRef.current.onPause?.());
+    session.setActionHandler('previoustrack', () => handlersRef.current.onPreviousTrack?.());
+    session.setActionHandler('nexttrack', () => handlersRef.current.onNextTrack?.());
     session.setActionHandler('seekto', (details) => {
-      if (details.seekTime !== undefined) {
-        handlersRef.current.onSeekTo?.(details.seekTime);
-      }
+      if (details.seekTime !== undefined) handlersRef.current.onSeekTo?.(details.seekTime);
     });
-
-    // Seek backward (10 seconds default)
     session.setActionHandler('seekbackward', (details) => {
-      const offset = details.seekOffset || 10;
-      handlersRef.current.onSeekBackward?.(offset);
+      handlersRef.current.onSeekBackward?.(details.seekOffset || 10);
     });
-
-    // Seek forward (10 seconds default)
     session.setActionHandler('seekforward', (details) => {
-      const offset = details.seekOffset || 10;
-      handlersRef.current.onSeekForward?.(offset);
+      handlersRef.current.onSeekForward?.(details.seekOffset || 10);
     });
 
     return () => {
-      // Limpiar handlers al desmontar
       session.setActionHandler('play', null);
       session.setActionHandler('pause', null);
       session.setActionHandler('previoustrack', null);
@@ -92,55 +82,43 @@ export function useMediaSession(): MediaSessionController {
     };
   }, [isSupported]);
 
-  // Actualizar metadatos (título, artista, carátula)
   const updateMetadata = useCallback((metadata: MediaMetadata) => {
     if (!isSupported) return;
 
-    const artworkArray: MediaImage[] = [];
-    
-    if (metadata.artwork) {
-      // Agregar múltiples tamaños para mejor compatibilidad
-      artworkArray.push(
-        { src: metadata.artwork, sizes: '96x96', type: 'image/jpeg' },
-        { src: metadata.artwork, sizes: '128x128', type: 'image/jpeg' },
-        { src: metadata.artwork, sizes: '192x192', type: 'image/jpeg' },
-        { src: metadata.artwork, sizes: '256x256', type: 'image/jpeg' },
-        { src: metadata.artwork, sizes: '384x384', type: 'image/jpeg' },
-        { src: metadata.artwork, sizes: '512x512', type: 'image/jpeg' }
-      );
-    }
+    const artworkSrc = toAbsoluteUrl(metadata.artwork);
+    const artworkType = inferArtworkType(artworkSrc);
 
     navigator.mediaSession.metadata = new MediaMetadata({
       title: metadata.title || 'Sin título',
       artist: metadata.artist || 'Artista desconocido',
-      album: metadata.album || 'EpicenterDSP PLAYER',
-      artwork: artworkArray,
+      album: metadata.album || 'Epicenter Hi-Fi',
+      artwork: [96, 128, 192, 256, 384, 512].map((size) => ({
+        src: artworkSrc,
+        sizes: `${size}x${size}`,
+        type: artworkType,
+      })),
     });
   }, [isSupported]);
 
-  // Actualizar estado de reproducción
   const updatePlaybackState = useCallback((state: 'playing' | 'paused' | 'none') => {
     if (!isSupported) return;
     navigator.mediaSession.playbackState = state;
   }, [isSupported]);
 
-  // Actualizar posición para el seek bar de la notificación
   const updatePosition = useCallback((position: number, duration: number, playbackRate: number = 1) => {
     if (!isSupported) return;
-    
+
     try {
       navigator.mediaSession.setPositionState({
         duration: duration || 0,
-        playbackRate: playbackRate,
+        playbackRate,
         position: Math.min(position, duration || 0),
       });
-    } catch (e) {
-      // Algunos navegadores no soportan setPositionState
-      console.debug('setPositionState not supported:', e);
+    } catch {
+      // Not supported in all browsers.
     }
   }, [isSupported]);
 
-  // Establecer handlers desde el componente padre
   const setHandlers = useCallback((handlers: MediaSessionHandlers) => {
     handlersRef.current = handlers;
   }, []);

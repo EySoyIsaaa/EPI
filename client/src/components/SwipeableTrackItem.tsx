@@ -12,6 +12,7 @@ import { useState, useRef, useCallback } from 'react';
 import { Disc3, ListPlus, PlayCircle, Play, MoreHorizontal, ListMusic } from 'lucide-react';
 import { type Track } from '@/hooks/useAudioQueue';
 import { AudioQualityBadge } from '@/components/AudioQualityBadge';
+import { TrackArtwork } from '@/components/TrackArtwork';
 import { useLanguage } from '@/hooks/useLanguage';
 
 interface SwipeableTrackItemProps {
@@ -232,13 +233,7 @@ export function SwipeableTrackItem({
           onClick={handleClick}
         >
           <div className={`${compact ? 'w-10 h-10' : 'w-12 h-12'} rounded-lg bg-zinc-800 overflow-hidden flex-shrink-0`}>
-            {track.coverUrl ? (
-              <img src={track.coverUrl} alt="" className="w-full h-full object-cover" />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center">
-                <Disc3 className={`${compact ? 'w-5 h-5' : 'w-6 h-6'} text-zinc-600`} strokeWidth={1} />
-              </div>
-            )}
+            <TrackArtwork src={track.coverUrl} alt={track.title} iconClassName={`${compact ? 'w-5 h-5' : 'w-6 h-6'} text-zinc-500`} />
           </div>
           
           <div className="flex-1 min-w-0">
@@ -249,7 +244,8 @@ export function SwipeableTrackItem({
                 <AudioQualityBadge 
                   bitDepth={track.bitDepth} 
                   sampleRate={track.sampleRate}
-                 
+                  bitrate={track.bitrate}
+                  isHiRes={track.isHiRes}
                   compact 
                 />
               </div>

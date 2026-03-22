@@ -1,4 +1,5 @@
 import React from 'react';
+import { hiresAudioBadgeUrl } from '@/lib/assetUrls';
 
 interface AudioQualityIndicatorProps {
   bitDepth?: number;
@@ -42,9 +43,9 @@ export function AudioQualityIndicator({
       return null;
     }
 
-      return (
-        <img
-        src="/hires-audio.svg"
+    return (
+      <img
+        src={hiresAudioBadgeUrl}
         alt="Hi-Res Audio"
         className="w-12 h-12 object-contain rounded-md"
       />

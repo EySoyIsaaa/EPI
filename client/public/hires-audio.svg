@@ -1,15 +1,17 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
   <title id="title">Hi-Res Audio</title>
-  <desc id="desc">Badge vectorial de Hi-Res Audio para reemplazar asset PNG binario.</desc>
+  <desc id="desc">Hi-Res Audio badge matching the provided gold and black artwork.</desc>
   <defs>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#facc15" />
-      <stop offset="100%" stop-color="#f59e0b" />
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f7dfab"/>
+      <stop offset="55%" stop-color="#f7bf5a"/>
+      <stop offset="100%" stop-color="#d68929"/>
     </linearGradient>
   </defs>
-  <rect x="6" y="6" width="108" height="108" rx="16" fill="url(#bg)" />
-  <rect x="12" y="12" width="96" height="96" rx="12" fill="#111827" opacity="0.96" />
-  <path d="M36 76V44h8v12h16V44h8v32h-8V63H44v13z" fill="#facc15" />
-  <path d="M78 44h12c11.046 0 20 8.954 20 20s-8.954 20-20 20H78zm8 8v24h4c6.627 0 12-5.373 12-12s-5.373-12-12-12z" fill="#facc15" />
-  <text x="60" y="97" text-anchor="middle" font-size="12" font-family="Arial, Helvetica, sans-serif" fill="#fde68a">HI-RES AUDIO</text>
+  <rect width="512" height="512" fill="#d28a2e"/>
+  <rect x="3" y="3" width="506" height="506" fill="url(#gold)" stroke="#b8832d" stroke-width="6"/>
+  <path d="M18 246 C 128 304, 246 308, 494 246 L 494 494 L 18 494 Z" fill="#000000"/>
+  <path d="M18 246 C 128 304, 246 308, 494 246" fill="none" stroke="#c2862b" stroke-width="6"/>
+  <text x="36" y="218" font-size="132" font-family="Arial Black, Helvetica, Arial, sans-serif" fill="#000000">Hi-Res</text>
+  <text x="40" y="448" font-size="132" font-family="Arial Black, Helvetica, Arial, sans-serif" fill="#dc902c">AUDIO</text>
 </svg>

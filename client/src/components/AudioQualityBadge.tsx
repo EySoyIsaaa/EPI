@@ -9,16 +9,27 @@ import { formatQualityLabel, isHiResQuality } from '@shared/audioQuality';
 interface AudioQualityBadgeProps {
   bitDepth?: number;
   sampleRate?: number;
+  bitrate?: number;
+  isHiRes?: boolean;
   compact?: boolean; // Para mostrar en listas
 }
 
 export function AudioQualityBadge({
   bitDepth,
   sampleRate,
+  bitrate,
+  isHiRes,
   compact = false,
 }: AudioQualityBadgeProps) {
-  const isHighRes = isHiResQuality(bitDepth, sampleRate);
-  const qualityLabel = formatQualityLabel(bitDepth, sampleRate);
+  const detectedHiRes = isHiResQuality(bitDepth, sampleRate);
+  const isHighRes = typeof isHiRes === 'boolean' ? isHiRes : detectedHiRes;
+  const qualityParts = [formatQualityLabel(bitDepth, sampleRate)].filter(Boolean);
+
+  if (typeof bitrate === 'number' && bitrate > 0) {
+    qualityParts.push(`${Math.round(bitrate / 1000)}kbps`);
+  }
+
+  const qualityLabel = qualityParts.join(' • ');
 
   // Si no hay datos de calidad, no mostrar nada
   if (!qualityLabel) {
