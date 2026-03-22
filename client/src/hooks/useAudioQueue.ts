@@ -230,7 +230,7 @@ export function useAudioQueue(): QueueController {
 
       const bitDepth = metadata.format?.bitsPerSample;
       const sampleRate = metadata.format?.sampleRate;
-      const isHiRes = isHiResQuality(bitDepth, sampleRate);
+      const isHiRes = typeof trackInfo.isHiRes === 'boolean' ? trackInfo.isHiRes : isHiResQuality(bitDepth, sampleRate);
 
       return {
         title,
@@ -330,15 +330,15 @@ export function useAudioQueue(): QueueController {
         title: metadata.title,
         artist: metadata.artist,
         duration: metadata.duration,
-        coverUrl: metadata.coverUrl,
+        coverUrl: metadata.coverBase64 || metadata.coverUrl,
         bitDepth: metadata.bitDepth,
         sampleRate: metadata.sampleRate,
         isHiRes: metadata.isHiRes,
         sourceType: 'file',
       };
       
-      if (metadata.coverUrl) {
-        coverUrlsRef.current.set(id, metadata.coverUrl);
+      if (metadata.coverBase64 || metadata.coverUrl) {
+        coverUrlsRef.current.set(id, metadata.coverBase64 || metadata.coverUrl!);
       }
       
       newTracks.push(track);
@@ -402,7 +402,7 @@ export function useAudioQueue(): QueueController {
       
       const bitDepth = trackInfo.bitDepth;
       const sampleRate = trackInfo.sampleRate;
-      const isHiRes = isHiResQuality(bitDepth, sampleRate);
+      const isHiRes = typeof trackInfo.isHiRes === 'boolean' ? trackInfo.isHiRes : isHiResQuality(bitDepth, sampleRate);
 
       // Obtener carátula del álbum si está disponible
       let coverBase64: string | undefined;

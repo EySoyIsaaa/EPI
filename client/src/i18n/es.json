@@ -1,6 +1,6 @@
 {
   "app": {
-    "name": "EpicenterDSP PLAYER",
+    "name": "Epicenter Hi-Fi",
     "version": "4.0.0"
   },
   "tabs": {
@@ -106,7 +106,7 @@
     "cancel": "Cancelar",
     "confirm": "Confirmar",
     "save": "Guardar",
-    "autoOptimizedPreset": "Preset automático aplicado: {preset}",
+    "autoOptimizedPreset": "Ajuste automático aplicado a la canción",
     "swipeQueueIndicator": "Agregar a cola",
     "swipeNextIndicator": "Reproducir siguiente"
   },
@@ -125,14 +125,14 @@
     "reset": "Restablecer",
     "auto": "Auto",
     "slideHint": "Desliza horizontalmente para acceder a las 31 bandas del ecualizador",
-    "autoButton": "Preset automático (IA)",
+    "autoButton": "Ajuste automático",
     "horizontalSlider": "Slider horizontal para navegar entre las bandas",
-    "autoTitle": "Preset automático con IA",
-    "autoDescription": "Este modo escucha los primeros segundos de cada canción y elige un preset de ecualización que suele sonar mejor para esa pista.",
-    "autoEnable": "Activar preset automático por canción",
+    "autoTitle": "Ajuste automático del ecualizador",
+    "autoDescription": "Este modo escucha los primeros segundos de cada canción y aplica una curva de ecualización adecuada para esa pista.",
+    "autoEnable": "Activar ajuste automático por canción",
     "autoApplyNow": "Analizar y aplicar ahora",
-    "iaBannerTitle": "Ecualización inteligente con IA offline",
-    "iaBannerDescription": "Analiza el audio en tu dispositivo y ajusta el preset automáticamente para mantener un sonido potente, claro y con menos riesgo de saturación."
+    "autoBannerTitle": "Ajuste automático del ecualizador",
+    "autoBannerDescription": "Analiza el audio en tu dispositivo y aplica un ajuste automático para mantener un sonido potente, claro y estable."
   },
   "dsp": {
     "title": "Epicenter DSP",
@@ -144,10 +144,10 @@
     "volume": "VOLUME",
     "description": "El procesador Epicenter reconstruye las frecuencias bajas perdidas en la compresión de audio.",
     "auto": "Auto",
-    "autoButton": "Epicenter automático (IA)",
-    "autoTitle": "Epicenter automático con IA",
-    "autoDescription": "Este modo ajusta Epicenter automáticamente en cada canción para que el bajo se sienta más fuerte y claro sin ajustes manuales.",
-    "autoEnable": "Activar Epicenter automático por canción",
+    "autoButton": "Ajuste automático",
+    "autoTitle": "Ajuste automático del procesador",
+    "autoDescription": "Este modo ajusta el procesador automáticamente en cada canción para reforzar el bajo sin ajustes manuales.",
+    "autoEnable": "Activar ajuste automático por canción",
     "autoApplyNow": "Analizar y aplicar ahora"
   },
   "settings": {
@@ -176,7 +176,7 @@
     "developerName": "Tu Nombre",
     "description": "Reproductor de música con procesador DSP Epicenter que reconstruye frecuencias bajas perdidas en la compresión de audio.",
     "features": "Características",
-    "feature1": "Ecualizador de 12 bandas",
+    "feature1": "Ecualizador de 31 bandas",
     "feature2": "Procesador Epicenter DSP",
     "feature3": "Soporte Hi-Res Audio",
     "feature4": "Controles en notificación",
@@ -189,8 +189,8 @@
     "howToUseCta": "Abrir guía"
   },
   "howToUse": {
-    "title": "Cómo usar EpicenterDSP Player",
-    "intro": "EpicenterDSP Player es un reproductor local con procesamiento de audio avanzado. Sigue estos pasos para aprovecharlo al máximo.",
+    "title": "Cómo usar Epicenter Hi-Fi",
+    "intro": "Epicenter Hi-Fi es un reproductor local con procesamiento de audio avanzado. Sigue estos pasos para aprovecharlo al máximo.",
     "libraryTitle": "1. Importa tu música",
     "libraryBody": "Usa la pantalla principal de la biblioteca para importar archivos manualmente o escanear tu dispositivo en Android.",
     "playerTitle": "2. Inicia la reproducción",
@@ -198,7 +198,7 @@
     "queueTitle": "3. Gestiona la cola",
     "queueBody": "Agrega canciones a la cola, reproduce siguiente o reordena para el flujo exacto que deseas.",
     "eqTitle": "4. Ajusta el ecualizador",
-    "eqBody": "Abre la pestaña EQ para modificar 12 bandas y restablecer cuando quieras.",
+    "eqBody": "Abre la pestaña EQ para ajustar las 31 bandas y volver a un sonido neutro cuando quieras.",
     "dspTitle": "5. Usa Epicenter DSP",
     "dspBody": "Activa Epicenter DSP para restaurar graves y ajusta Sweep, Width, Intensity, Balance y Volume.",
     "playlistsTitle": "6. Crea playlists",
@@ -216,7 +216,7 @@
     "step1Title": "Agrega tu música",
     "step1Description": "Importa archivos de audio o escanea tu biblioteca del dispositivo para comenzar.",
     "step2Title": "Ajusta tu sonido",
-    "step2Description": "Usa el ecualizador de 12 bandas y el DSP Epicenter para moldear bajos y claridad.",
+    "step2Description": "Usa el ecualizador de 31 bandas y el procesador Epicenter para moldear bajos y claridad.",
     "step3Title": "Disfruta sin interrupciones",
     "step3Description": "Crea playlists, arma la cola y reproduce sin anuncios."
   },
@@ -224,13 +224,13 @@
     "section": "Legal",
     "updated": "Última actualización: enero 2025",
     "privacyTitle": "Política de privacidad",
-    "privacyIntro": "EpicenterDSP Player guarda tu biblioteca y preferencias localmente en tu dispositivo.",
+    "privacyIntro": "Epicenter Hi-Fi guarda tu biblioteca y preferencias localmente en tu dispositivo.",
     "privacyData": "No recopilamos, vendemos ni compartimos datos personales. No usamos SDKs de analítica o publicidad.",
     "privacyStorage": "Los archivos de audio permanecen en tu dispositivo. La app solo accede al almacenamiento cuando importas o escaneas música.",
     "privacySecurity": "Si concedes permisos, puedes revocarlos en cualquier momento desde la configuración del sistema.",
     "privacyContact": "Para consultas sobre privacidad, contacta al desarrollador mediante el correo de soporte en Google Play.",
     "termsTitle": "Términos de servicio",
-    "termsIntro": "Al usar EpicenterDSP Player aceptas utilizar la app para reproducción personal y legal de tus archivos.",
+    "termsIntro": "Al usar Epicenter Hi-Fi aceptas utilizar la app para reproducción personal y legal de tus archivos de audio.",
     "termsUsage": "Eres responsable del contenido que cargas y de respetar las leyes de copyright aplicables.",
     "termsContent": "La app se ofrece tal cual, sin garantías, y sus funciones pueden evolucionar con el tiempo.",
     "termsAvailability": "Podemos actualizar o descontinuar funciones para mejorar estabilidad y experiencia.",

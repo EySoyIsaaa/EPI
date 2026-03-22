@@ -120,7 +120,7 @@ export default function Home() {
     balance: 50,
     volume: 100,
   });
-  const [epicenterEnabled, setEpicenterEnabled] = useState(false);
+  const epicenterEnabled = audioProcessor.epicenterEnabled;
   const [eqAutoEnabled, setEqAutoEnabled] = useState(false);
   const [dspAutoEnabled, setDspAutoEnabled] = useState(false);
   const [showEqAutoModal, setShowEqAutoModal] = useState(false);
@@ -287,7 +287,7 @@ export default function Home() {
       mediaNotification.updateMetadata({
         title: queue.currentTrack.title,
         artist: queue.currentTrack.artist,
-        album: 'EpicenterDSP PLAYER',
+        album: 'Epicenter Hi-Fi',
         artwork: queue.currentTrack.coverUrl,
       });
     }
@@ -478,14 +478,10 @@ export default function Home() {
     audioProcessor.setEqEnabled(enabled);
 
     // Epicenter debe poder seguir activo de forma independiente aunque el EQ se apague.
-    if (!enabled && epicenterEnabled) {
-      audioProcessor.setEpicenterEnabled(true);
-    }
   }, [audioProcessor, epicenterEnabled]);
 
   const toggleEpicenter = useCallback(() => {
     const newEnabled = !epicenterEnabled;
-    setEpicenterEnabled(newEnabled);
     audioProcessor.setEpicenterEnabled(newEnabled);
     if (newEnabled) {
       Object.entries(dspParams).forEach(([key, value]) => {
@@ -522,7 +518,6 @@ export default function Home() {
 
     if (dspAutoEnabled) {
       if (!epicenterEnabled) {
-        setEpicenterEnabled(true);
         audioProcessor.setEpicenterEnabled(true);
       }
       const dspSuggestion = suggestDspFromScores(selection.debug);
@@ -538,13 +533,13 @@ export default function Home() {
     lastAutoPresetTrackRef.current = queue.currentTrack.id;
     lastAutoPresetTimeRef.current = now;
 
-    console.log('[AutoPreset IA]', {
+    console.log('[AutoAdjustment]', {
       presetId: selection.presetId,
       presetName: selection.preset.name,
       debug: selection.debug,
     });
 
-    toast.success(t('actions.autoOptimizedPreset', { preset: selection.preset.name }));
+    toast.success(t('actions.autoOptimizedPreset'));
   }
 
 
@@ -1801,8 +1796,8 @@ export default function Home() {
           </header>
           <div className="flex-1 px-6 py-8">
             <div className="mb-4 rounded-2xl border border-cyan-500/25 bg-gradient-to-r from-cyan-500/10 to-violet-500/10 p-3">
-              <p className="text-xs font-semibold text-cyan-200">{t('eq.iaBannerTitle')}</p>
-              <p className="text-[11px] text-zinc-300 mt-1">{t('eq.iaBannerDescription')}</p>
+              <p className="text-xs font-semibold text-cyan-200">{t('eq.autoBannerTitle')}</p>
+              <p className="text-[11px] text-zinc-300 mt-1">{t('eq.autoBannerDescription')}</p>
             </div>
             <p className="text-[11px] text-zinc-500 mb-3">{t('eq.slideHint')}</p>
             <EQVisualizer bands={audioProcessor.eqBands} enabled={audioProcessor.eqEnabled} onBandChange={audioProcessor.setEqBandGain} minGain={EQ_GAIN_MIN} maxGain={EQ_GAIN_MAX} horizontalControlLabel={t('eq.horizontalSlider')} />

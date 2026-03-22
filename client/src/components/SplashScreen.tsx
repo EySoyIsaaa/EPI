@@ -76,7 +76,7 @@ export function SplashScreen({ onFinish, duration = 2000 }: SplashScreenProps) {
 
         {/* App name */}
         <h1 className="text-2xl font-bold text-white tracking-tight mb-1">
-          EpicenterDSP
+          Epicenter Hi-Fi
         </h1>
         <p className="text-sm text-zinc-500 font-medium tracking-widest uppercase">
           Player
