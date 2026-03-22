@@ -18,6 +18,28 @@ export interface StreamingParams {
   volume: number;
 }
 
+const clampStreamingParam = (name: keyof StreamingParams, value: number): number => {
+  switch (name) {
+    case 'sweepFreq':
+      return Math.max(27, Math.min(63, value));
+    case 'width':
+    case 'intensity':
+    case 'balance':
+    case 'volume':
+      return Math.max(0, Math.min(100, value));
+    default:
+      return value;
+  }
+};
+
+const clampStreamingParams = (params: StreamingParams): StreamingParams => ({
+  sweepFreq: clampStreamingParam('sweepFreq', params.sweepFreq),
+  width: clampStreamingParam('width', params.width),
+  intensity: clampStreamingParam('intensity', params.intensity),
+  balance: clampStreamingParam('balance', params.balance),
+  volume: clampStreamingParam('volume', params.volume),
+});
+
 export interface EqualizerBand {
   frequency: number;
   gain: number;
@@ -97,7 +119,7 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
     width: 50,
     intensity: 50,
     balance: 50,
-    volume: 120,
+    volume: 100,
   });
   
   // Callback para cuando termina una canción
@@ -176,7 +198,7 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
             width: 50,
             intensity: 0, // Comenzar con 0 (desactivado)
             balance: 50,
-            volume: 120,
+            volume: 100,
           },
         });
       } catch (error) {
@@ -345,11 +367,12 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
       throw error;
     }
     
-    // Guardar parámetros iniciales
-    dspParamsRef.current = { ...params };
+    // Guardar parámetros iniciales ya normalizados a los topes reales de UI.
+    const clampedParams = clampStreamingParams(params);
+    dspParamsRef.current = { ...clampedParams };
     
-    // Establecer intensity a 0 si Epicenter está desactivado
-    const finalParams = { ...params, intensity: epicenterEnabled ? params.intensity : 0 };
+    // Establecer intensity a 0 si Epicenter está desactivado.
+    const finalParams = { ...clampedParams, intensity: epicenterEnabled ? clampedParams.intensity : 0 };
     
     const paramEntries = Object.entries(finalParams) as [keyof StreamingParams, number][];
     for (const [key, value] of paramEntries) {
@@ -445,14 +468,16 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
     const ctx = audioContextRef.current;
     if (!node || !ctx) return;
     
+    const clampedValue = clampStreamingParam(name, value);
+
     // Guardar el parámetro
-    dspParamsRef.current = { ...dspParamsRef.current, [name]: value };
+    dspParamsRef.current = { ...dspParamsRef.current, [name]: clampedValue };
     
     const param = node.parameters.get(name);
     if (!param) return;
     
     // Usar linearRampToValueAtTime para cambios suaves sin reinicio
-    param.linearRampToValueAtTime(value, ctx.currentTime + 0.05);
+    param.linearRampToValueAtTime(clampedValue, ctx.currentTime + 0.05);
   }, []);
 
 

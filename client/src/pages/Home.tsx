@@ -43,6 +43,7 @@ import { Switch } from '@/components/ui/switch';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Link } from 'wouter';
 import { EQ_GAIN_MAX, EQ_GAIN_MIN, useIntegratedAudioProcessor, type StreamingParams } from '@/hooks/useIntegratedAudioProcessor';
+
 import { analyzeSpectrumAndSelectPreset, applyPresetSmooth, suggestDspFromScores } from '@/audio/autoPresetSelector';
 import { useAudioQueue, type Track } from '@/hooks/useAudioQueue';
 import { usePlaylists, type Playlist } from '@/hooks/usePlaylists';
@@ -55,6 +56,7 @@ import { useLastTrack } from '@/hooks/useLastTrack';
 import { useTheme } from '@/contexts/ThemeContext';
 import { KnobControl } from '@/components/KnobControl';
 import { AudioQualityBadge } from '@/components/AudioQualityBadge';
+
 import { EQVisualizer } from '@/components/EQVisualizer';
 import { SwipeableTrackItem } from '@/components/SwipeableTrackItem';
 import { AndroidMusicImporter } from '@/components/AndroidMusicImporter';
@@ -63,6 +65,28 @@ import { BottomNavigation } from '@/components/BottomNavigation';
 import { useLanguage } from '@/hooks/useLanguage';
 import { useAndroidMusicLibrary, type AndroidMusicFile } from '@/hooks/useAndroidMusicLibrary';
 import { toast } from 'sonner';
+
+const clampDspParam = (key: keyof StreamingParams, value: number): number => {
+  switch (key) {
+    case 'sweepFreq':
+      return Math.max(27, Math.min(63, value));
+    case 'width':
+    case 'intensity':
+    case 'balance':
+    case 'volume':
+      return Math.max(0, Math.min(100, value));
+    default:
+      return value;
+  }
+};
+
+const clampDspParams = (params: StreamingParams): StreamingParams => ({
+  sweepFreq: clampDspParam('sweepFreq', params.sweepFreq),
+  width: clampDspParam('width', params.width),
+  intensity: clampDspParam('intensity', params.intensity),
+  balance: clampDspParam('balance', params.balance),
+  volume: clampDspParam('volume', params.volume),
+});
 
 type TabType = 'player' | 'library' | 'search' | 'eq' | 'dsp' | 'settings';
 type LibraryView = 'main' | 'songs' | 'artists' | 'albums' | 'hires' | 'playlists' | 'playlist-detail';
@@ -94,7 +118,7 @@ export default function Home() {
     width: 50,
     intensity: 50,
     balance: 50,
-    volume: 120,
+    volume: 100,
   });
   const [epicenterEnabled, setEpicenterEnabled] = useState(false);
   const [eqAutoEnabled, setEqAutoEnabled] = useState(false);
@@ -197,7 +221,7 @@ export default function Home() {
   useEffect(() => {
     const lastConfig = presetManager.getLastConfig();
     if (lastConfig) {
-      setDspParams(lastConfig.dspParams);
+      setDspParams(clampDspParams(lastConfig.dspParams));
       audioProcessor.eqBands.forEach((_, index) => {
         audioProcessor.setEqBandGain(index, lastConfig.eqBands[index] || 0);
       });
@@ -443,9 +467,10 @@ export default function Home() {
   }, [queue, t]);
 
   const updateDspParam = useCallback((key: keyof StreamingParams, value: number) => {
-    setDspParams(prev => ({ ...prev, [key]: value }));
+    const clampedValue = clampDspParam(key, value);
+    setDspParams(prev => ({ ...prev, [key]: clampedValue }));
     if (key === 'volume' || epicenterEnabled) {
-      audioProcessor.setDspParam(key, value);
+      audioProcessor.setDspParam(key, clampedValue);
     }
   }, [audioProcessor, epicenterEnabled]);
 
@@ -501,8 +526,9 @@ export default function Home() {
         audioProcessor.setEpicenterEnabled(true);
       }
       const dspSuggestion = suggestDspFromScores(selection.debug);
-      setDspParams((prev) => ({ ...prev, ...dspSuggestion }));
-      Object.entries(dspSuggestion).forEach(([key, value]) => {
+      const clampedSuggestion = clampDspParams({ ...dspParams, ...dspSuggestion });
+      setDspParams(clampedSuggestion);
+      Object.entries(clampedSuggestion).forEach(([key, value]) => {
         if (typeof value === 'number') {
           audioProcessor.setDspParam(key as keyof StreamingParams, value);
         }
@@ -1820,7 +1846,7 @@ export default function Home() {
               </div>
               <div className="flex justify-center gap-8">
                 <KnobControl label={t('dsp.balance')} value={dspParams.balance} min={0} max={100} step={1} unit="%" onChange={(v) => updateDspParam('balance', v)} disabled={!epicenterEnabled} />
-                <KnobControl label={t('dsp.volume')} value={dspParams.volume} min={0} max={150} step={1} unit="%" onChange={(v) => updateDspParam('volume', v)} />
+                <KnobControl label={t('dsp.volume')} value={dspParams.volume} min={0} max={100} step={1} unit="%" onChange={(v) => updateDspParam('volume', v)} />
               </div>
             </div>
             <p className="text-center text-xs text-zinc-600 mt-6 px-8">{t('dsp.description')}</p>
