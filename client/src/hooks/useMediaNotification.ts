@@ -1,8 +1,5 @@
 /**
- * useMediaNotification - Hook para controles en notificaciones Android
- * 
- * Usa @capgo/capacitor-media-session
- * API: https://github.com/Cap-go/capacitor-media-session
+ * Hook para controles en notificaciones Android.
  */
 
 import { useEffect, useCallback, useRef } from 'react';
@@ -33,15 +30,38 @@ export interface MediaNotificationController {
   setHandlers: (handlers: NotificationHandlers) => void;
 }
 
+const FALLBACK_ARTWORK = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><defs><linearGradient id='g' x1='0%' y1='0%' x2='100%' y2='100%'><stop offset='0%' stop-color='%2306b6d4'/><stop offset='100%' stop-color='%238b5cf6'/></linearGradient></defs><rect width='512' height='512' rx='120' fill='%2309090b'/><circle cx='256' cy='256' r='164' fill='none' stroke='url(%23g)' stroke-width='28'/><path d='M184 308h24l18-96 30 140 28-116 16 72h28' fill='none' stroke='url(%23g)' stroke-linecap='round' stroke-linejoin='round' stroke-width='26'/></svg>";
+
+const toAbsoluteUrl = (src?: string) => {
+  if (!src) return `${window.location.origin}${FALLBACK_ARTWORK}`;
+  if (src.startsWith('data:') || src.startsWith('http://') || src.startsWith('https://') || src.startsWith('content://') || src.startsWith('file://')) {
+    return src;
+  }
+  if (src.startsWith('blob:')) {
+    return src;
+  }
+  return new URL(src, window.location.origin).href;
+};
+
+const inferArtworkType = (src: string) => {
+  if (src.startsWith('data:image/png')) return 'image/png';
+  if (src.startsWith('data:image/webp')) return 'image/webp';
+  if (src.startsWith('data:image/svg+xml')) return 'image/svg+xml';
+  if (src.startsWith('data:image/jpeg') || src.startsWith('data:image/jpg')) return 'image/jpeg';
+  if (src.endsWith('.png')) return 'image/png';
+  if (src.endsWith('.webp')) return 'image/webp';
+  if (src.endsWith('.svg')) return 'image/svg+xml';
+  return 'image/jpeg';
+};
+
 export function useMediaNotification(): MediaNotificationController {
   const handlersRef = useRef<NotificationHandlers>({});
   const isStartedRef = useRef(false);
   const isNative = Capacitor.isNativePlatform();
 
-  // Retorna funciones vacías si no es plataforma nativa
   if (!isNative) {
     return {
-      start: async () => { console.log('[MediaNotification] Not native platform'); },
+      start: async () => {},
       stop: async () => {},
       updateMetadata: async () => {},
       updatePlaybackState: async () => {},
@@ -50,49 +70,25 @@ export function useMediaNotification(): MediaNotificationController {
     };
   }
 
-  // Iniciar Media Session y registrar handlers
   const start = useCallback(async () => {
     if (isStartedRef.current) return;
 
     try {
-      console.log('[MediaNotification] Starting media session...');
-
-      // Registrar action handlers
-      await MediaSession.setActionHandler({ action: 'play' }, () => {
-        console.log('[MediaNotification] Play action');
-        handlersRef.current.onPlay?.();
-      });
-
-      await MediaSession.setActionHandler({ action: 'pause' }, () => {
-        console.log('[MediaNotification] Pause action');
-        handlersRef.current.onPause?.();
-      });
-
-      await MediaSession.setActionHandler({ action: 'previoustrack' }, () => {
-        console.log('[MediaNotification] Previous track');
-        handlersRef.current.onPrevious?.();
-      });
-
-      await MediaSession.setActionHandler({ action: 'nexttrack' }, () => {
-        console.log('[MediaNotification] Next track');
-        handlersRef.current.onNext?.();
-      });
-
+      await MediaSession.setActionHandler({ action: 'play' }, () => handlersRef.current.onPlay?.());
+      await MediaSession.setActionHandler({ action: 'pause' }, () => handlersRef.current.onPause?.());
+      await MediaSession.setActionHandler({ action: 'previoustrack' }, () => handlersRef.current.onPrevious?.());
+      await MediaSession.setActionHandler({ action: 'nexttrack' }, () => handlersRef.current.onNext?.());
       await MediaSession.setActionHandler({ action: 'seekto' }, (details: any) => {
-        console.log('[MediaNotification] Seek to:', details?.seekTime);
         if (details?.seekTime != null) {
           handlersRef.current.onSeek?.(details.seekTime);
         }
       });
-
       isStartedRef.current = true;
-      console.log('[MediaNotification] Started successfully');
     } catch (error) {
       console.error('[MediaNotification] Error starting:', error);
     }
   }, []);
 
-  // Detener servicio
   const stop = useCallback(async () => {
     if (!isStartedRef.current) return;
 
@@ -102,75 +98,60 @@ export function useMediaNotification(): MediaNotificationController {
       await MediaSession.setActionHandler({ action: 'previoustrack' }, null);
       await MediaSession.setActionHandler({ action: 'nexttrack' }, null);
       await MediaSession.setActionHandler({ action: 'seekto' }, null);
-      
       isStartedRef.current = false;
-      console.log('[MediaNotification] Stopped');
     } catch (error) {
       console.error('[MediaNotification] Error stopping:', error);
     }
   }, []);
 
-  // Actualizar metadatos (título, artista, carátula)
   const updateMetadata = useCallback(async (metadata: NotificationMetadata) => {
     try {
-      // Iniciar si no está iniciado
       if (!isStartedRef.current) {
         await start();
       }
 
-      const artworkArray = metadata.artwork 
-        ? [{ src: metadata.artwork, sizes: '512x512', type: 'image/jpeg' }]
-        : [];
-
+      const artworkSrc = toAbsoluteUrl(metadata.artwork);
       await MediaSession.setMetadata({
         title: metadata.title || 'Sin título',
         artist: metadata.artist || 'Artista desconocido',
-        album: metadata.album || 'EpicenterDSP PLAYER',
-        artwork: artworkArray,
+        album: metadata.album || 'Epicenter Hi-Fi',
+        artwork: [{ src: artworkSrc, sizes: '512x512', type: inferArtworkType(artworkSrc) }],
       });
-
-      console.log('[MediaNotification] Metadata updated:', metadata.title);
     } catch (error) {
       console.error('[MediaNotification] Error updating metadata:', error);
     }
   }, [start]);
 
-  // Actualizar estado de reproducción
   const updatePlaybackState = useCallback(async (isPlaying: boolean) => {
     try {
       await MediaSession.setPlaybackState({
         playbackState: isPlaying ? 'playing' : 'paused',
       });
-
-      console.log('[MediaNotification] Playback state:', isPlaying ? 'playing' : 'paused');
     } catch (error) {
       console.error('[MediaNotification] Error updating playback state:', error);
     }
   }, []);
 
-  // Actualizar posición (para seek bar en notificación)
   const updatePosition = useCallback(async (currentTime: number, duration: number) => {
     try {
       await MediaSession.setPositionState({
-        duration: duration,
+        duration,
         position: currentTime,
         playbackRate: 1.0,
       });
-    } catch (error) {
-      // Silenciar errores de posición
+    } catch {
+      // Some platforms ignore position state updates.
     }
   }, []);
 
-  // Establecer handlers
   const setHandlers = useCallback((handlers: NotificationHandlers) => {
     handlersRef.current = handlers;
   }, []);
 
-  // Cleanup al desmontar
   useEffect(() => {
     return () => {
       if (isStartedRef.current) {
-        stop();
+        void stop();
       }
     };
   }, [stop]);

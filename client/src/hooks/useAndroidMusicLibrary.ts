@@ -15,6 +15,7 @@ export interface AndroidMusicFile {
   albumArtUri?: string;
   bitDepth?: number;
   sampleRate?: number;
+  isHiRes?: boolean;
 }
 
 export interface ScanProgress {
@@ -117,6 +118,7 @@ export function useAndroidMusicLibrary() {
           albumArtUri: file.albumArtUri || '',
           bitDepth: typeof file.bitDepth === 'number' ? file.bitDepth : undefined,
           sampleRate: typeof file.sampleRate === 'number' ? file.sampleRate : undefined,
+          isHiRes: typeof file.isHiRes === 'boolean' ? file.isHiRes : undefined,
         }));
       
       logger.info('🎵 Archivos procesados:', files.length);

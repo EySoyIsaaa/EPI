@@ -1,6 +1,6 @@
 {
   "app": {
-    "name": "EpicenterDSP PLAYER",
+    "name": "Epicenter Hi-Fi",
     "version": "4.0.0"
   },
   "tabs": {
@@ -106,7 +106,7 @@
     "cancel": "Cancel",
     "confirm": "Confirm",
     "save": "Save",
-    "autoOptimizedPreset": "Auto preset applied: {preset}",
+    "autoOptimizedPreset": "Automatic adjustment applied to the song",
     "swipeQueueIndicator": "Add to queue",
     "swipeNextIndicator": "Play next"
   },
@@ -125,14 +125,14 @@
     "reset": "Reset",
     "auto": "Auto",
     "slideHint": "Swipe horizontally to access all 31 EQ bands",
-    "autoButton": "Auto preset (IA)",
+    "autoButton": "Auto adjust",
     "horizontalSlider": "Horizontal slider to navigate EQ bands",
-    "autoTitle": "Auto preset with IA",
-    "autoDescription": "This mode listens to the first seconds of each song and chooses an EQ preset that usually sounds better for that track.",
-    "autoEnable": "Enable automatic preset per song",
+    "autoTitle": "Automatic equalizer adjustment",
+    "autoDescription": "This mode listens to the first seconds of each song and applies an equalizer curve that fits the track.",
+    "autoEnable": "Enable automatic adjustment per song",
     "autoApplyNow": "Analyze and apply now",
-    "iaBannerTitle": "Intelligent EQ with offline IA",
-    "iaBannerDescription": "It analyzes audio on your device and auto-adjusts the preset to keep sound punchy, clear, and with less clipping risk."
+    "autoBannerTitle": "Automatic equalizer adjustment",
+    "autoBannerDescription": "It analyzes audio on your device and applies an automatic adjustment to keep the sound punchy, clear, and stable."
   },
   "dsp": {
     "title": "Epicenter DSP",
@@ -144,10 +144,10 @@
     "volume": "VOLUME",
     "description": "The Epicenter processor reconstructs low frequencies lost in audio compression.",
     "auto": "Auto",
-    "autoButton": "Auto Epicenter (IA)",
-    "autoTitle": "Automatic Epicenter with IA",
-    "autoDescription": "This mode adjusts Epicenter automatically on each song so bass feels stronger and clearer without manual tuning.",
-    "autoEnable": "Enable automatic Epicenter for each track",
+    "autoButton": "Auto adjust",
+    "autoTitle": "Automatic processor adjustment",
+    "autoDescription": "This mode adjusts the processor automatically on each song to reinforce bass without manual tuning.",
+    "autoEnable": "Enable automatic adjustment per song",
     "autoApplyNow": "Analyze and apply now"
   },
   "settings": {
@@ -176,7 +176,7 @@
     "developerName": "Your Name",
     "description": "Music player with Epicenter DSP processor that reconstructs low frequencies lost in audio compression.",
     "features": "Features",
-    "feature1": "12-band equalizer",
+    "feature1": "31-band equalizer",
     "feature2": "Epicenter DSP processor",
     "feature3": "Hi-Res Audio support",
     "feature4": "Notification controls",
@@ -189,8 +189,8 @@
     "howToUseCta": "Open guide"
   },
   "howToUse": {
-    "title": "How to use EpicenterDSP Player",
-    "intro": "EpicenterDSP Player is a local music player with advanced audio processing. Follow these steps to get the most out of the app.",
+    "title": "How to use Epicenter Hi-Fi",
+    "intro": "Epicenter Hi-Fi is a local music player with advanced audio processing. Follow these steps to get the most out of the app.",
     "libraryTitle": "1. Import your music",
     "libraryBody": "Use the main library screen to import files manually or scan your device on Android.",
     "playerTitle": "2. Start playback",
@@ -198,7 +198,7 @@
     "queueTitle": "3. Manage the queue",
     "queueBody": "Add tracks to the queue, play next, or reorder items for the exact listening flow you want.",
     "eqTitle": "4. Shape your EQ",
-    "eqBody": "Open the EQ tab to adjust 12 bands and reset to neutral whenever you want.",
+    "eqBody": "Open the EQ tab to adjust all 31 bands and return to a neutral sound whenever you want.",
     "dspTitle": "5. Use Epicenter DSP",
     "dspBody": "Enable Epicenter DSP to restore low-end detail and tune Sweep, Width, Intensity, Balance, and Volume.",
     "playlistsTitle": "6. Build playlists",
@@ -216,7 +216,7 @@
     "step1Title": "Add your music",
     "step1Description": "Import audio files or scan your device library to get started.",
     "step2Title": "Tune your sound",
-    "step2Description": "Use the 12-band EQ and Epicenter DSP to shape your bass and clarity.",
+    "step2Description": "Use the 31-band EQ and Epicenter processor to shape your bass and clarity.",
     "step3Title": "Enjoy uninterrupted playback",
     "step3Description": "Create playlists, queue tracks, and keep playing without ads."
   },
@@ -224,13 +224,13 @@
     "section": "Legal",
     "updated": "Last updated: January 2025",
     "privacyTitle": "Privacy Policy",
-    "privacyIntro": "EpicenterDSP Player stores your music library and preferences locally on your device.",
+    "privacyIntro": "Epicenter Hi-Fi stores your library and preferences locally on your device.",
     "privacyData": "We do not collect, sell, or share personal data. No analytics or advertising SDKs are used.",
     "privacyStorage": "Audio files remain on your device. The app only accesses storage when you import or scan music.",
     "privacySecurity": "If you choose to grant permissions, you can revoke them anytime from system settings.",
     "privacyContact": "For questions about privacy, contact the developer through the support email listed on Google Play.",
     "termsTitle": "Terms of Service",
-    "termsIntro": "By using EpicenterDSP Player, you agree to use the app for personal, lawful playback of your own audio files.",
+    "termsIntro": "By using Epicenter Hi-Fi, you agree to use the app for personal, lawful playback of your own audio files.",
     "termsUsage": "You are responsible for the content you load and for respecting applicable copyright laws.",
     "termsContent": "The app is provided as-is without warranties, and features may evolve over time.",
     "termsAvailability": "We may update or discontinue features to improve stability and user experience.",
