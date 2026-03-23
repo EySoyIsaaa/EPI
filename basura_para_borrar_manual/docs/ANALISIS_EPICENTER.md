@@ -12,7 +12,7 @@ Mi conclusión general:
 
 ## Lo que parece ser el producto hoy
 
-Según el README, el proyecto se presenta como un reproductor de música con interfaz tipo Spotify, procesamiento DSP “Epicenter”, ecualización, soporte móvil y soporte de formatos locales. Además, se describe una arquitectura basada en React, Vite, Tailwind y AudioWorklet. El README también posiciona el proyecto como listo para producción. 
+Según el README, el proyecto se presenta como un reproductor de música con interfaz tipo Epicenter, procesamiento DSP “Epicenter”, ecualización, soporte móvil y soporte de formatos locales. Además, se describe una arquitectura basada en React, Vite, Tailwind y AudioWorklet. El README también posiciona el proyecto como listo para producción. 
 
 Sin embargo, al revisar la implementación actual, se ve que el producto ya evolucionó más allá de lo que documenta el README: hay más persistencia, más integración Android y una base híbrida frontend/backend propia de una plantilla Manus/tRPC/Express.
 
