@@ -150,6 +150,9 @@ export default function Home() {
   const initialLoadRef = useRef(true);
   const lastAutoPresetTrackRef = useRef<string | null>(null);
   const lastAutoPresetTimeRef = useRef(0);
+  const trackLoadRequestRef = useRef(0);
+  const playTimeoutRef = useRef<number | null>(null);
+  const autoOptimizationTimeoutRef = useRef<number | null>(null);
 
   const hiResTracks = useMemo(
     () => queue.library.filter((track) => track.isHiRes),
@@ -370,11 +373,59 @@ export default function Home() {
     return () => clearTimeout(timer);
   }, [dspParams, audioProcessor.eqBands]);
 
+  const clearPendingPlaybackTimers = useCallback(() => {
+    if (playTimeoutRef.current !== null) {
+      window.clearTimeout(playTimeoutRef.current);
+      playTimeoutRef.current = null;
+    }
+    if (autoOptimizationTimeoutRef.current !== null) {
+      window.clearTimeout(autoOptimizationTimeoutRef.current);
+      autoOptimizationTimeoutRef.current = null;
+    }
+  }, []);
+
+  const resolveTrackSource = useCallback(
+    async (track: Track): Promise<File | string> => {
+      if (track.sourceType === "media-store" && track.sourceUri) {
+        const stableLibraryTrack = queue.library.find(
+          (libraryTrack) =>
+            libraryTrack.sourceType === "media-store" &&
+            libraryTrack.sourceUri === track.sourceUri,
+        );
+
+        const fileUrl = await androidMusicLibrary.getAudioFileUrl(
+          track.sourceUri,
+          stableLibraryTrack?.id ?? track.id,
+        );
+
+        if (!fileUrl) {
+          throw new Error("No se pudo obtener el audio del dispositivo");
+        }
+
+        return fileUrl;
+      }
+
+      const trackFile = track.file ?? (await queue.getTrackFile(track));
+      if (!trackFile) {
+        throw new Error("Track source not available");
+      }
+
+      return trackFile;
+    },
+    [androidMusicLibrary, queue.getTrackFile, queue.library],
+  );
+
+  useEffect(() => {
+    return () => {
+      trackLoadRequestRef.current += 1;
+      clearPendingPlaybackTimers();
+    };
+  }, [clearPendingPlaybackTimers]);
+
   // Cargar última canción al iniciar (sin autoplay)
   const lastTrackLoadedRef = useRef(false);
   useEffect(() => {
     const loadLastTrack = async () => {
-      // Solo cargar si: biblioteca lista, lastTrack cargado, no hay canción actual, no hemos cargado ya
       if (
         !queue.isLoading &&
         lastTrack.isLoaded &&
@@ -384,101 +435,139 @@ export default function Home() {
       ) {
         lastTrackLoadedRef.current = true;
 
-        // Buscar el track en la biblioteca
         const track = queue.library.find((t) => t.id === lastTrack.lastTrackId);
-        if (track) {
-          console.log("[LastTrack] Loading last track:", track.title);
-          // Agregar a la cola sin reproducir
-          queue.addToQueue(track);
-          // Seleccionar el track (index 0)
-          queue.playTrack(0);
-          // Cargar el archivo pero NO reproducir automáticamente
-          try {
-            const source = track.sourceUri ?? track.file;
-            if (!source) {
-              throw new Error("Track source not available");
-            }
-            await audioProcessor.loadFile(source, dspParams);
-            // NO llamar audioProcessor.play() - el usuario debe iniciar manualmente
-            currentTrackRef.current = track.id;
-          } catch (error) {
+        if (!track) return;
+
+        const requestId = ++trackLoadRequestRef.current;
+        clearPendingPlaybackTimers();
+        currentTrackRef.current = track.id;
+
+        console.log("[LastTrack] Loading last track:", track.title);
+        queue.addToQueue(track);
+        queue.playTrack(0);
+
+        try {
+          const source = await resolveTrackSource(track);
+
+          if (trackLoadRequestRef.current !== requestId) {
+            return;
+          }
+
+          await audioProcessor.loadFile(source, dspParams);
+
+          if (trackLoadRequestRef.current !== requestId) {
+            return;
+          }
+        } catch (error) {
+          if (trackLoadRequestRef.current === requestId) {
+            currentTrackRef.current = null;
             console.error("[LastTrack] Error loading last track:", error);
           }
         }
       }
     };
-    loadLastTrack();
+
+    void loadLastTrack();
   }, [
-    queue.isLoading,
+    audioProcessor,
+    clearPendingPlaybackTimers,
+    dspParams,
     lastTrack.isLoaded,
     lastTrack.lastTrackId,
+    queue.addToQueue,
+    queue.isLoading,
     queue.library,
+    queue.playTrack,
+    resolveTrackSource,
   ]);
 
   // Cargar track cuando cambia (y guardar como último track)
   useEffect(() => {
-    const loadTrack = async () => {
-      if (
-        queue.currentTrack &&
-        queue.currentTrack.id !== currentTrackRef.current
-      ) {
-        currentTrackRef.current = queue.currentTrack.id;
+    const requestedTrack = queue.currentTrack;
 
-        // Guardar como última canción reproducida (usando el ID original, no el de cola)
-        const originalId = queue.currentTrack.id.replace(/^queue-\d+-\w+$/, "");
-        // Buscar el ID real en la biblioteca
-        const libraryTrack = queue.library.find(
-          (t) =>
-            queue.currentTrack?.title === t.title &&
-            queue.currentTrack?.artist === t.artist,
-        );
-        if (libraryTrack) {
-          lastTrack.saveLastTrack(libraryTrack.id);
+    if (!requestedTrack || requestedTrack.id === currentTrackRef.current) {
+      return;
+    }
+
+    const requestId = ++trackLoadRequestRef.current;
+    clearPendingPlaybackTimers();
+    currentTrackRef.current = requestedTrack.id;
+
+    const loadTrack = async () => {
+      const libraryTrack = queue.library.find(
+        (track) =>
+          track.sourceUri === requestedTrack.sourceUri ||
+          (track.title === requestedTrack.title &&
+            track.artist === requestedTrack.artist),
+      );
+
+      if (libraryTrack) {
+        lastTrack.saveLastTrack(libraryTrack.id);
+      }
+
+      try {
+        const source = await resolveTrackSource(requestedTrack);
+
+        if (
+          trackLoadRequestRef.current !== requestId ||
+          queue.currentTrack?.id !== requestedTrack.id
+        ) {
+          return;
         }
 
-        try {
-          let source: File | string | undefined;
+        await audioProcessor.loadFile(source, dspParams);
 
-          // Si es un track de MediaStore, obtener URL del archivo en caché
+        if (
+          trackLoadRequestRef.current !== requestId ||
+          queue.currentTrack?.id !== requestedTrack.id
+        ) {
+          return;
+        }
+
+        playTimeoutRef.current = window.setTimeout(() => {
           if (
-            queue.currentTrack.sourceType === "media-store" &&
-            queue.currentTrack.sourceUri
+            trackLoadRequestRef.current !== requestId ||
+            queue.currentTrack?.id !== requestedTrack.id
           ) {
-            console.log("🎵 Track de MediaStore, obteniendo URL de archivo...");
-            const trackId = queue.currentTrack.id.replace("media-", "");
-            const fileUrl = await androidMusicLibrary.getAudioFileUrl(
-              queue.currentTrack.sourceUri,
-              trackId,
-            );
-            if (fileUrl) {
-              source = fileUrl;
-              console.log("✅ URL de archivo obtenida para reproducción");
-            } else {
-              throw new Error("No se pudo obtener el audio del dispositivo");
-            }
-          } else {
-            // Track importado manualmente
-            source = await queue.getTrackFile(queue.currentTrack);
+            return;
           }
 
-          if (!source) {
-            throw new Error("Track source not available");
-          }
-          await audioProcessor.loadFile(source, dspParams);
-          setTimeout(() => {
-            audioProcessor.play();
-            setTimeout(() => {
-              runAutoOptimization();
-            }, 1400);
-          }, 100);
-        } catch (error) {
+          audioProcessor.play();
+
+          autoOptimizationTimeoutRef.current = window.setTimeout(() => {
+            if (
+              trackLoadRequestRef.current !== requestId ||
+              queue.currentTrack?.id !== requestedTrack.id
+            ) {
+              return;
+            }
+
+            void runAutoOptimization();
+          }, 1400);
+        }, 100);
+      } catch (error) {
+        if (
+          trackLoadRequestRef.current === requestId &&
+          queue.currentTrack?.id === requestedTrack.id
+        ) {
+          currentTrackRef.current = null;
           console.error("Error loading track:", error);
           toast.error(t("actions.errorLoadingTrack"));
         }
       }
     };
-    loadTrack();
-  }, [queue.currentTrack?.id]);
+
+    void loadTrack();
+  }, [
+    audioProcessor,
+    clearPendingPlaybackTimers,
+    dspParams,
+    lastTrack.saveLastTrack,
+    queue.currentTrack,
+    queue.library,
+    resolveTrackSource,
+    t,
+  ]);
 
   const handleFileSelect = useCallback(async () => {
     const input = document.createElement("input");
