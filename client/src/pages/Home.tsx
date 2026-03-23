@@ -7,48 +7,13 @@
  */
 
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
-import {
-  Play,
-  Pause,
-  SkipForward,
-  SkipBack,
-  Plus,
-  Disc3,
-  ChevronRight,
-  User,
-  Music2,
-  Folder,
-  ListPlus,
-  PlayCircle,
-  GripVertical,
-  X,
-  Shuffle,
-  Settings,
-  Globe,
-  Info,
-  ChevronDown,
-  Volume2,
-  ListMusic,
-  MoreVertical,
-  Edit3,
-  Trash2,
-  Check,
-  AlertCircle,
-  FileText,
-  BookOpen,
-  Search,
-} from "lucide-react";
+import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Link } from "wouter";
 import {
-  EQ_GAIN_MAX,
-  EQ_GAIN_MIN,
   useIntegratedAudioProcessor,
   type StreamingParams,
 } from "@/hooks/useIntegratedAudioProcessor";
-
 import {
   analyzeSpectrumAndSelectPreset,
   applyPresetSmooth,
@@ -63,15 +28,7 @@ import { useNotificationPermission } from "@/hooks/useNotificationPermission";
 import { useCrossfade } from "@/hooks/useCrossfade";
 import { useLastTrack } from "@/hooks/useLastTrack";
 import { useTheme } from "@/contexts/ThemeContext";
-import { KnobControl } from "@/components/KnobControl";
-import { AudioQualityBadge } from "@/components/AudioQualityBadge";
-
-import { EQVisualizer } from "@/components/EQVisualizer";
-import { SwipeableTrackItem } from "@/components/SwipeableTrackItem";
-import { AndroidMusicImporter } from "@/components/AndroidMusicImporter";
-import { MusicScanner } from "@/components/MusicScanner";
 import { BottomNavigation } from "@/components/BottomNavigation";
-import { TrackArtwork } from "@/components/TrackArtwork";
 import {
   AddSongsToPlaylistModal,
   AddToPlaylistModal,
@@ -82,7 +39,18 @@ import {
   PlaylistNameModal,
   TrackContextMenu,
 } from "@/components/home/HomeOverlays";
+import { HomeDspView } from "@/components/home/HomeDspView";
+import { HomeEqView } from "@/components/home/HomeEqView";
+import { HomeImportProgressOverlay } from "@/components/home/HomeImportProgressOverlay";
+import { HomeLibraryView } from "@/components/home/HomeLibraryView";
 import { HomePlayerView } from "@/components/home/HomePlayerView";
+import { HomeSearchView } from "@/components/home/HomeSearchView";
+import { HomeSettingsView } from "@/components/home/HomeSettingsView";
+import {
+  type DspParamConfig,
+  type HomeLibraryView as LibraryView,
+  type HomeTabType as TabType,
+} from "@/components/home/types";
 import { useLanguage } from "@/hooks/useLanguage";
 import {
   useAndroidMusicLibrary,
@@ -112,16 +80,6 @@ const clampDspParams = (params: StreamingParams): StreamingParams => ({
   balance: clampDspParam("balance", params.balance),
   volume: clampDspParam("volume", params.volume),
 });
-
-type TabType = "player" | "library" | "search" | "eq" | "dsp" | "settings";
-type LibraryView =
-  | "main"
-  | "songs"
-  | "artists"
-  | "albums"
-  | "hires"
-  | "playlists"
-  | "playlist-detail";
 
 export default function Home() {
   const audioProcessor = useIntegratedAudioProcessor();
@@ -828,6 +786,66 @@ export default function Home() {
     y: number;
   } | null>(null);
 
+  const dspControls = useMemo<DspParamConfig[]>(
+    () => [
+      {
+        key: "sweepFreq",
+        label: t("dsp.sweep"),
+        value: dspParams.sweepFreq,
+        min: 27,
+        max: 63,
+        step: 1,
+        unit: " Hz",
+        onChange: (value) => updateDspParam("sweepFreq", value),
+        disabled: !epicenterEnabled,
+      },
+      {
+        key: "width",
+        label: t("dsp.width"),
+        value: dspParams.width,
+        min: 0,
+        max: 100,
+        step: 1,
+        unit: "%",
+        onChange: (value) => updateDspParam("width", value),
+        disabled: !epicenterEnabled,
+      },
+      {
+        key: "intensity",
+        label: t("dsp.intensity"),
+        value: dspParams.intensity,
+        min: 0,
+        max: 100,
+        step: 1,
+        unit: "%",
+        onChange: (value) => updateDspParam("intensity", value),
+        disabled: !epicenterEnabled,
+      },
+      {
+        key: "balance",
+        label: t("dsp.balance"),
+        value: dspParams.balance,
+        min: 0,
+        max: 100,
+        step: 1,
+        unit: "%",
+        onChange: (value) => updateDspParam("balance", value),
+        disabled: !epicenterEnabled,
+      },
+      {
+        key: "volume",
+        label: t("dsp.volume"),
+        value: dspParams.volume,
+        min: 0,
+        max: 100,
+        step: 1,
+        unit: "%",
+        onChange: (value) => updateDspParam("volume", value),
+      },
+    ],
+    [dspParams, epicenterEnabled, t, updateDspParam],
+  );
+
   return (
     <div className="min-h-screen flex flex-col bg-black text-white">
       <TrackContextMenu
@@ -969,806 +987,90 @@ export default function Home() {
         hiresAudioBadgeUrl={hiresAudioBadgeUrl}
       />
 
-      {/* Library View */}
       {activeTab === "library" && (
-        <div className="flex-1 flex flex-col" data-testid="library-view">
-          <header className="flex items-center justify-between px-6 pt-12 pb-4 border-b border-zinc-900">
-            {libraryView === "main" ? (
-              <h2 className="text-xl font-bold">{t("library.title")}</h2>
-            ) : libraryView === "playlist-detail" && selectedPlaylist ? (
-              <button
-                onClick={() => {
-                  setLibraryView("playlists");
-                  setSelectedPlaylist(null);
-                }}
-                className="flex items-center gap-2 text-zinc-400 hover:text-white"
-              >
-                <ChevronRight className="w-5 h-5 rotate-180" />
-                <span className="text-xl font-bold text-white">
-                  {selectedPlaylist.name}
-                </span>
-              </button>
-            ) : (
-              <button
-                onClick={() => setLibraryView("main")}
-                className="flex items-center gap-2 text-zinc-400 hover:text-white"
-              >
-                <ChevronRight className="w-5 h-5 rotate-180" />
-                <span className="text-xl font-bold text-white">
-                  {libraryView === "songs"
-                    ? t("library.songs")
-                    : libraryView === "artists"
-                      ? t("library.artists")
-                      : libraryView === "albums"
-                        ? t("library.albums")
-                        : libraryView === "hires"
-                          ? t("library.highResolution")
-                          : t("library.playlists")}
-                </span>
-              </button>
-            )}
-            <div className="flex items-center gap-2">
-              {libraryView === "playlists" && (
-                <button
-                  onClick={() => setShowCreatePlaylist(true)}
-                  className="p-2 text-zinc-400 hover:text-white"
-                >
-                  <Plus className="w-5 h-5" />
-                </button>
-              )}
-              {libraryView === "main" && (
-                <>
-                  <AndroidMusicImporter
-                    onImportTracks={handleMediaStoreImport}
-                  />
-                  <button
-                    onClick={handleFileSelect}
-                    className="p-2 text-zinc-400 hover:text-white"
-                  >
-                    <Plus className="w-5 h-5" />
-                  </button>
-                </>
-              )}
-            </div>
-          </header>
-          <ScrollArea className="flex-1">
-            {libraryView === "main" && (
-              <div className="p-4 space-y-2">
-                {queue.library.length > 0 && (
-                  <button
-                    onClick={() => handleShufflePlay(queue.library)}
-                    className="w-full flex items-center gap-4 p-4 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 transition-all mb-4"
-                  >
-                    <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center">
-                      <Shuffle className="w-6 h-6 text-white" />
-                    </div>
-                    <div className="flex-1 text-left">
-                      <p className="font-semibold text-white">
-                        {t("library.shufflePlay")}
-                      </p>
-                      <p className="text-sm text-white/70">
-                        {t("library.songsCount", {
-                          count: queue.library.length,
-                        })}
-                      </p>
-                    </div>
-                    <Play className="w-6 h-6 text-white" fill="currentColor" />
-                  </button>
-                )}
-
-                <button
-                  onClick={() => setLibraryView("playlists")}
-                  className="w-full flex items-center gap-4 p-4 rounded-xl bg-zinc-900/50 hover:bg-zinc-900 transition-colors"
-                >
-                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center">
-                    <ListMusic className="w-6 h-6 text-white" />
-                  </div>
-                  <div className="flex-1 text-left">
-                    <p className="font-semibold">{t("library.playlists")}</p>
-                    <p className="text-sm text-zinc-500">
-                      {t("library.playlistsCount", {
-                        count: playlistManager.playlists.length,
-                      })}
-                    </p>
-                  </div>
-                  <ChevronRight className="w-5 h-5 text-zinc-600" />
-                </button>
-
-                <button
-                  onClick={() => setLibraryView("songs")}
-                  className="w-full flex items-center gap-4 p-4 rounded-xl bg-zinc-900/50 hover:bg-zinc-900 transition-colors"
-                >
-                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-pink-500 to-orange-500 flex items-center justify-center">
-                    <Music2 className="w-6 h-6 text-white" />
-                  </div>
-                  <div className="flex-1 text-left">
-                    <p className="font-semibold">{t("library.songs")}</p>
-                    <p className="text-sm text-zinc-500">
-                      {t("library.songsCount", { count: queue.library.length })}
-                    </p>
-                  </div>
-                  <ChevronRight className="w-5 h-5 text-zinc-600" />
-                </button>
-
-                <button
-                  onClick={() => setLibraryView("artists")}
-                  className="w-full flex items-center gap-4 p-4 rounded-xl bg-zinc-900/50 hover:bg-zinc-900 transition-colors"
-                >
-                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center">
-                    <User className="w-6 h-6 text-white" />
-                  </div>
-                  <div className="flex-1 text-left">
-                    <p className="font-semibold">{t("library.artists")}</p>
-                    <p className="text-sm text-zinc-500">
-                      {t("library.artistsCount", {
-                        count: Object.keys(songsByArtist).length,
-                      })}
-                    </p>
-                  </div>
-                  <ChevronRight className="w-5 h-5 text-zinc-600" />
-                </button>
-
-                <button
-                  onClick={() => setLibraryView("albums")}
-                  className="w-full flex items-center gap-4 p-4 rounded-xl bg-zinc-900/50 hover:bg-zinc-900 transition-colors"
-                >
-                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-green-500 to-teal-500 flex items-center justify-center">
-                    <Folder className="w-6 h-6 text-white" />
-                  </div>
-                  <div className="flex-1 text-left">
-                    <p className="font-semibold">{t("library.albums")}</p>
-                    <p className="text-sm text-zinc-500">
-                      {t("library.albumsCount", {
-                        count: Object.keys(albums).length,
-                      })}
-                    </p>
-                  </div>
-                  <ChevronRight className="w-5 h-5 text-zinc-600" />
-                </button>
-
-                <button
-                  onClick={() => setLibraryView("hires")}
-                  className="w-full flex items-center gap-4 p-4 rounded-xl bg-zinc-900/50 hover:bg-zinc-900 transition-colors"
-                >
-                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-amber-500 to-yellow-500 flex items-center justify-center">
-                    <img
-                      src={hiresLogoUrl}
-                      alt="Hi-Res Audio"
-                      className="w-7 h-7 object-contain"
-                    />
-                  </div>
-                  <div className="flex-1 text-left">
-                    <p className="font-semibold">
-                      {t("library.highResolution")}
-                    </p>
-                    <p className="text-sm text-zinc-500">
-                      {t("library.songsCount", { count: hiResTracks.length })}
-                    </p>
-                  </div>
-                  <ChevronRight className="w-5 h-5 text-zinc-600" />
-                </button>
-
-                {queue.isLoading ? (
-                  <div className="text-center py-12">
-                    <div className="w-8 h-8 border-2 border-zinc-700 border-t-white rounded-full animate-spin mx-auto mb-4" />
-                    <p className="text-zinc-500">
-                      {t("library.loadingLibrary")}
-                    </p>
-                  </div>
-                ) : queue.library.length === 0 ? (
-                  <div className="text-center py-8 px-4">
-                    <Disc3
-                      className="w-16 h-16 text-zinc-800 mx-auto mb-4"
-                      strokeWidth={1}
-                    />
-                    <p className="text-zinc-500 mb-6">{t("library.noMusic")}</p>
-
-                    {/* Nuevo componente profesional de escaneo */}
-                    <div className="max-w-md mx-auto">
-                      <MusicScanner
-                        onScanComplete={handleMediaStoreImport}
-                        onManualImport={handleFileSelect}
-                        isScanning={queue.importProgress.isImporting}
-                      />
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            )}
-
-            {libraryView === "playlists" && (
-              <div className="p-4 space-y-2">
-                {playlistManager.playlists.length === 0 ? (
-                  <div className="text-center py-12">
-                    <ListMusic
-                      className="w-16 h-16 text-zinc-800 mx-auto mb-4"
-                      strokeWidth={1}
-                    />
-                    <p className="text-zinc-500 mb-4">
-                      {t("playlists.noPlaylists")}
-                    </p>
-                    <Button
-                      onClick={() => setShowCreatePlaylist(true)}
-                      variant="outline"
-                      className="border-zinc-800"
-                    >
-                      {t("playlists.createFirst")}
-                    </Button>
-                  </div>
-                ) : (
-                  playlistManager.playlists.map((playlist) => (
-                    <div
-                      key={playlist.id}
-                      className="flex items-center gap-4 p-4 rounded-xl bg-zinc-900/50 hover:bg-zinc-900 transition-colors"
-                    >
-                      <div
-                        className="flex-1 flex items-center gap-4 cursor-pointer"
-                        onClick={() => {
-                          setSelectedPlaylist(playlist);
-                          setLibraryView("playlist-detail");
-                        }}
-                      >
-                        <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center overflow-hidden">
-                          <TrackArtwork
-                            src={playlist.tracks[0]?.coverUrl}
-                            alt={playlist.name}
-                            iconClassName="w-6 h-6 text-zinc-300"
-                          />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-semibold truncate">
-                            {playlist.name}
-                          </p>
-                          <p className="text-sm text-zinc-500">
-                            {t("library.songsCount", {
-                              count: playlist.trackIds.length,
-                            })}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handlePlayInOrder(playlist.tracks);
-                          }}
-                          className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white text-black text-xs font-semibold"
-                        >
-                          <Play className="w-3.5 h-3.5" fill="currentColor" />
-                          {t("actions.play")}
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleShufflePlay(playlist.tracks);
-                          }}
-                          className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-zinc-700 text-xs text-white"
-                        >
-                          <Shuffle className="w-3.5 h-3.5" />
-                          {t("library.shuffle")}
-                        </button>
-                      </div>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const rect = (
-                            e.target as HTMLElement
-                          ).getBoundingClientRect();
-                          setPlaylistMenu({
-                            playlist,
-                            x: rect.left - 100,
-                            y: rect.bottom + 8,
-                          });
-                        }}
-                        className="p-2 text-zinc-500 hover:text-white"
-                      >
-                        <MoreVertical className="w-5 h-5" />
-                      </button>
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
-
-            {libraryView === "playlist-detail" && selectedPlaylist && (
-              <div className="p-4 space-y-1">
-                {/* Big Add Songs Button */}
-                <button
-                  onClick={() => setShowAddSongsToPlaylist(true)}
-                  className="w-full flex items-center gap-4 p-4 rounded-xl bg-zinc-800/50 hover:bg-zinc-800 border-2 border-dashed border-zinc-700 transition-all mb-4"
-                >
-                  <div className="w-12 h-12 rounded-xl bg-zinc-700 flex items-center justify-center">
-                    <Plus className="w-6 h-6 text-white" />
-                  </div>
-                  <div className="flex-1 text-left">
-                    <p className="font-semibold text-white">
-                      {t("playlists.addSongs")}
-                    </p>
-                    <p className="text-sm text-zinc-500">
-                      {t("playlists.emptyDescription")}
-                    </p>
-                  </div>
-                </button>
-
-                {selectedPlaylist.tracks.length > 0 && (
-                  <div className="flex flex-wrap items-center gap-3 mb-4">
-                    <button
-                      onClick={() => handlePlayInOrder(selectedPlaylist.tracks)}
-                      className="flex items-center gap-2 px-5 py-2 rounded-full bg-white text-black font-semibold shadow-sm"
-                    >
-                      <Play className="w-4 h-4" fill="currentColor" />
-                      {t("actions.play")}
-                    </button>
-                    <button
-                      onClick={() => handleShufflePlay(selectedPlaylist.tracks)}
-                      className="flex items-center gap-2 px-5 py-2 rounded-full border border-zinc-700 text-white"
-                    >
-                      <Shuffle className="w-4 h-4" />
-                      {t("library.shuffle")}
-                    </button>
-                  </div>
-                )}
-
-                {selectedPlaylist.tracks.length === 0 ? (
-                  <div className="text-center py-8">
-                    <ListMusic
-                      className="w-16 h-16 text-zinc-800 mx-auto mb-4"
-                      strokeWidth={1}
-                    />
-                    <p className="text-zinc-500 mb-2">{t("playlists.empty")}</p>
-                  </div>
-                ) : (
-                  selectedPlaylist.tracks.map((track) => (
-                    <div
-                      key={track.id}
-                      className="flex items-center gap-3 p-3 rounded-xl hover:bg-zinc-900/50 transition-colors"
-                    >
-                      <div
-                        className="flex-1 flex items-center gap-3 min-w-0 cursor-pointer"
-                        onClick={() => handlePlayNow(track)}
-                      >
-                        <div className="w-10 h-10 rounded-lg bg-zinc-800 overflow-hidden flex-shrink-0">
-                          <TrackArtwork
-                            src={track.coverUrl}
-                            alt={track.title}
-                            iconClassName="w-5 h-5 text-zinc-500"
-                          />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate">
-                            {track.title}
-                          </p>
-                          <p className="text-xs text-zinc-500 truncate">
-                            {track.artist}
-                          </p>
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => handleRemoveFromPlaylist(track)}
-                        className="p-2 text-zinc-600 hover:text-red-400"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
-
-            {libraryView === "songs" && (
-              <div className="p-4 space-y-1">
-                {sortedSongs.length > 0 && (
-                  <>
-                    <div className="flex flex-wrap items-center gap-3 mb-4">
-                      <button
-                        onClick={() => handlePlayInOrder(sortedSongs)}
-                        className="flex items-center gap-2 px-5 py-2 rounded-full bg-white text-black font-semibold shadow-sm"
-                      >
-                        <Play className="w-4 h-4" fill="currentColor" />
-                        {t("actions.play")}
-                      </button>
-                      <button
-                        onClick={() => handleShufflePlay(sortedSongs)}
-                        className="flex items-center gap-2 px-5 py-2 rounded-full border border-zinc-700 text-white"
-                      >
-                        <Shuffle className="w-4 h-4" />
-                        {t("library.shuffle")}
-                      </button>
-                    </div>
-                    <div className="mb-3 flex items-center gap-2">
-                      <span className="text-xs text-zinc-500">
-                        {t("library.sortBy")}
-                      </span>
-                      <button
-                        onClick={() => setSongSort("default")}
-                        className={`px-3 py-1 rounded-full text-xs ${songSort === "default" ? "bg-white text-black" : "bg-zinc-900 text-zinc-400"}`}
-                      >
-                        {t("library.sortDefault")}
-                      </button>
-                      <button
-                        onClick={() => setSongSort("name")}
-                        className={`px-3 py-1 rounded-full text-xs ${songSort === "name" ? "bg-white text-black" : "bg-zinc-900 text-zinc-400"}`}
-                      >
-                        {t("library.sortName")}
-                      </button>
-                      <button
-                        onClick={() => setSongSort("artist")}
-                        className={`px-3 py-1 rounded-full text-xs ${songSort === "artist" ? "bg-white text-black" : "bg-zinc-900 text-zinc-400"}`}
-                      >
-                        {t("library.sortArtist")}
-                      </button>
-                    </div>
-                  </>
-                )}
-                {sortedSongs.length > 0 && (
-                  <p className="text-xs text-zinc-600 text-center mb-3 px-4">
-                    {t("library.swipeHint")}
-                  </p>
-                )}
-                {sortedSongs.slice(0, visibleSongsCount).map((track) => (
-                  <SwipeableTrackItem
-                    key={track.id}
-                    track={track}
-                    onPlayNow={handlePlayNow}
-                    onAddToQueue={handleAddToQueue}
-                    onPlayNext={handlePlayNext}
-                    onAddToPlaylist={handleOpenAddToPlaylist}
-                  />
-                ))}
-                {visibleSongsCount < sortedSongs.length && (
-                  <div className="py-4 text-center">
-                    <button
-                      onClick={() => setVisibleSongsCount((prev) => prev + 250)}
-                      className="px-4 py-2 rounded-full bg-zinc-900 text-zinc-200 text-sm"
-                    >
-                      {t("library.loadMoreSongs", {
-                        count: Math.min(
-                          250,
-                          sortedSongs.length - visibleSongsCount,
-                        ),
-                      })}
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {libraryView === "hires" && (
-              <div className="p-4 space-y-1">
-                {hiResTracks.length > 0 && (
-                  <div className="flex items-center gap-3 mb-4">
-                    <button
-                      onClick={() => handlePlayInOrder(hiResTracks)}
-                      className="flex items-center gap-2 px-5 py-2 rounded-full bg-white text-black font-semibold shadow-sm"
-                    >
-                      <Play className="w-4 h-4" fill="currentColor" />
-                      {t("actions.play")}
-                    </button>
-                    <button
-                      onClick={() => handleShufflePlay(hiResTracks)}
-                      className="flex items-center gap-2 px-5 py-2 rounded-full border border-zinc-700 text-white"
-                    >
-                      <Shuffle className="w-4 h-4" />
-                      {t("library.shuffle")}
-                    </button>
-                  </div>
-                )}
-                {hiResTracks.length > 0 && (
-                  <p className="text-xs text-zinc-600 text-center mb-3 px-4">
-                    {t("library.swipeHint")}
-                  </p>
-                )}
-                {hiResTracks.length === 0 && (
-                  <p className="text-center text-zinc-500 py-8">
-                    {t("library.noMusic", {
-                      defaultValue: "No tienes música aún",
-                    })}
-                  </p>
-                )}
-                {hiResTracks.map((track) => (
-                  <SwipeableTrackItem
-                    key={track.id}
-                    track={track}
-                    onPlayNow={handlePlayNow}
-                    onAddToQueue={handleAddToQueue}
-                    onPlayNext={handlePlayNext}
-                    onAddToPlaylist={handleOpenAddToPlaylist}
-                  />
-                ))}
-              </div>
-            )}
-
-            {libraryView === "artists" && (
-              <div className="p-4 space-y-1">
-                {Object.entries(songsByArtist).map(([artist, tracks]) => (
-                  <div key={artist} className="mb-4">
-                    <div className="flex items-center justify-between p-3">
-                      <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 rounded-full bg-zinc-800 flex items-center justify-center">
-                          <User className="w-6 h-6 text-zinc-500" />
-                        </div>
-                        <div>
-                          <p className="font-semibold">{artist}</p>
-                          <p className="text-sm text-zinc-500">
-                            {t("library.songsCount", { count: tracks.length })}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => handlePlayInOrder(tracks)}
-                          className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white text-black text-xs font-semibold"
-                        >
-                          <Play className="w-3.5 h-3.5" fill="currentColor" />
-                          {t("actions.play")}
-                        </button>
-                        <button
-                          onClick={() => handleShufflePlay(tracks)}
-                          className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-zinc-700 text-xs text-white"
-                        >
-                          <Shuffle className="w-3.5 h-3.5" />
-                          {t("library.shuffle")}
-                        </button>
-                      </div>
-                    </div>
-                    <div className="ml-4 border-l border-zinc-800 pl-2">
-                      {tracks.map((track) => (
-                        <SwipeableTrackItem
-                          key={track.id}
-                          track={track}
-                          onPlayNow={handlePlayNow}
-                          onAddToQueue={handleAddToQueue}
-                          onPlayNext={handlePlayNext}
-                          onAddToPlaylist={handleOpenAddToPlaylist}
-                          showArtist={false}
-                          compact
-                        />
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {libraryView === "albums" && (
-              <div className="p-4 grid grid-cols-2 gap-3">
-                {Object.entries(albums).map(([album, tracks]) => (
-                  <div
-                    key={album}
-                    className="bg-zinc-900/50 rounded-xl p-3 hover:bg-zinc-900 transition-colors"
-                  >
-                    <div
-                      className="aspect-square rounded-lg bg-zinc-800 mb-2 overflow-hidden cursor-pointer"
-                      onClick={() => handlePlayNow(tracks[0])}
-                    >
-                      <TrackArtwork
-                        src={tracks[0].coverUrl}
-                        alt={album}
-                        iconClassName="w-8 h-8 text-zinc-500"
-                      />
-                    </div>
-                    <p className="font-medium text-sm truncate">{album}</p>
-                    <div className="flex items-center justify-between mt-1">
-                      <p className="text-xs text-zinc-500">
-                        {t("library.songsCount", { count: tracks.length })}
-                      </p>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleShufflePlay(tracks);
-                        }}
-                        className="p-1 text-zinc-500 hover:text-white"
-                        title={t("library.shuffle")}
-                      >
-                        <Shuffle className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </ScrollArea>
-        </div>
+        <HomeLibraryView
+          t={t}
+          libraryView={libraryView}
+          setLibraryView={setLibraryView}
+          queueLibrary={queue.library}
+          queueIsLoading={queue.isLoading}
+          importIsImporting={queue.importProgress.isImporting}
+          playlists={playlistManager.playlists}
+          selectedPlaylist={selectedPlaylist}
+          setSelectedPlaylist={setSelectedPlaylist}
+          hiResTracks={hiResTracks}
+          songsByArtist={songsByArtist}
+          albums={albums}
+          sortedSongs={sortedSongs}
+          songSort={songSort}
+          setSongSort={setSongSort}
+          visibleSongsCount={visibleSongsCount}
+          setVisibleSongsCount={setVisibleSongsCount}
+          playlistMenu={playlistMenu}
+          setPlaylistMenu={setPlaylistMenu}
+          onCreatePlaylist={() => setShowCreatePlaylist(true)}
+          onOpenFilePicker={handleFileSelect}
+          onImportMediaStoreTracks={handleMediaStoreImport}
+          onPlayNow={handlePlayNow}
+          onAddToQueue={handleAddToQueue}
+          onPlayNext={handlePlayNext}
+          onAddToPlaylist={handleOpenAddToPlaylist}
+          onPlayInOrder={handlePlayInOrder}
+          onShufflePlay={handleShufflePlay}
+          onOpenAddToPlaylist={handleOpenAddToPlaylist}
+          onOpenAddSongsToPlaylist={() => setShowAddSongsToPlaylist(true)}
+          onOpenDeletePlaylist={(playlist) => {
+            setSelectedPlaylist(playlist);
+            setShowDeletePlaylist(true);
+          }}
+          onOpenRenamePlaylist={(playlist) => {
+            setSelectedPlaylist(playlist);
+            setNewPlaylistName(playlist.name);
+            setShowRenamePlaylist(true);
+          }}
+          onRemoveFromPlaylist={handleRemoveFromPlaylist}
+          hiresLogoUrl={hiresLogoUrl}
+        />
       )}
 
-      {/* Global Search View */}
       {activeTab === "search" && (
-        <div className="flex-1 flex flex-col" data-testid="search-view">
-          <header className="px-6 pt-12 pb-4 border-b border-zinc-900">
-            <h2 className="text-xl font-bold">{t("search.globalTitle")}</h2>
-            <p className="text-xs text-zinc-500 mt-1">
-              {t("search.globalSubtitle")}
-            </p>
-          </header>
-          <div className="px-6 pt-3">
-            <label className="flex items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900/60 px-3 py-2">
-              <Search className="w-4 h-4 text-zinc-500" />
-              <input
-                value={globalSearchQuery}
-                onChange={(e) => setGlobalSearchQuery(e.target.value)}
-                placeholder={t("search.globalPlaceholder")}
-                className="w-full bg-transparent text-sm text-zinc-100 placeholder:text-zinc-500 outline-none"
-              />
-            </label>
-          </div>
-          <ScrollArea className="flex-1 px-4 py-3">
-            {!normalizedGlobalQuery ? (
-              <p className="text-center text-zinc-500 py-10 text-sm">
-                {t("search.startTyping")}
-              </p>
-            ) : globalResults.length === 0 ? (
-              <p className="text-center text-zinc-500 py-10 text-sm">
-                {t("search.noResults")}
-              </p>
-            ) : (
-              <div className="space-y-1">
-                {globalResults.map((track) => (
-                  <SwipeableTrackItem
-                    key={track.id}
-                    track={track}
-                    onPlayNow={handlePlayNow}
-                    onAddToQueue={handleAddToQueue}
-                    onPlayNext={handlePlayNext}
-                    onAddToPlaylist={handleOpenAddToPlaylist}
-                  />
-                ))}
-              </div>
-            )}
-          </ScrollArea>
-        </div>
+        <HomeSearchView
+          t={t}
+          globalSearchQuery={globalSearchQuery}
+          setGlobalSearchQuery={setGlobalSearchQuery}
+          normalizedGlobalQuery={normalizedGlobalQuery}
+          globalResults={globalResults}
+          onPlayNow={handlePlayNow}
+          onAddToQueue={handleAddToQueue}
+          onPlayNext={handlePlayNext}
+          onAddToPlaylist={handleOpenAddToPlaylist}
+        />
       )}
 
-      {/* Equalizer View */}
       {activeTab === "eq" && (
-        <div className="flex-1 flex flex-col" data-testid="eq-view">
-          <header className="flex items-center justify-between px-6 pt-12 pb-4 border-b border-zinc-900">
-            <h2 className="text-xl font-bold">{t("eq.title")}</h2>
-            <div className="flex items-center gap-3">
-              <Button
-                variant="secondary"
-                onClick={() => setShowEqAutoModal(true)}
-                className="text-xs px-3 py-1.5 h-auto"
-              >
-                {t("eq.autoButton")}
-              </Button>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-zinc-500 uppercase tracking-wider">
-                  {audioProcessor.eqEnabled ? t("eq.on") : t("eq.off")}
-                </span>
-                <Switch
-                  checked={audioProcessor.eqEnabled}
-                  onCheckedChange={toggleEq}
-                />
-              </div>
-            </div>
-          </header>
-          <div className="flex-1 px-6 py-8">
-            <div className="mb-4 rounded-2xl border border-cyan-500/25 bg-gradient-to-r from-cyan-500/10 to-violet-500/10 p-3">
-              <p className="text-xs font-semibold text-cyan-200">
-                {t("eq.autoBannerTitle")}
-              </p>
-              <p className="text-[11px] text-zinc-300 mt-1">
-                {t("eq.autoBannerDescription")}
-              </p>
-            </div>
-            <p className="text-[11px] text-zinc-500 mb-3">
-              {t("eq.slideHint")}
-            </p>
-            <EQVisualizer
-              bands={audioProcessor.eqBands}
-              enabled={audioProcessor.eqEnabled}
-              onBandChange={audioProcessor.setEqBandGain}
-              minGain={EQ_GAIN_MIN}
-              maxGain={EQ_GAIN_MAX}
-              horizontalControlLabel={t("eq.horizontalSlider")}
-            />
-          </div>
-          <div className="px-6 pb-8">
-            <Button
-              variant="outline"
-              onClick={() =>
-                audioProcessor.eqBands.forEach((_, i) =>
-                  audioProcessor.setEqBandGain(i, 0),
-                )
-              }
-              className="w-full border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-900"
-            >
-              {t("eq.reset")}
-            </Button>
-          </div>
-        </div>
+        <HomeEqView
+          t={t}
+          eqEnabled={audioProcessor.eqEnabled}
+          eqBands={audioProcessor.eqBands}
+          onToggleEq={toggleEq}
+          onOpenAutoModal={() => setShowEqAutoModal(true)}
+          onSetEqBandGain={audioProcessor.setEqBandGain}
+          onResetEq={() =>
+            audioProcessor.eqBands.forEach((_, index) =>
+              audioProcessor.setEqBandGain(index, 0),
+            )
+          }
+        />
       )}
 
-      {/* DSP View */}
       {activeTab === "dsp" && (
-        <div className="flex-1 flex flex-col" data-testid="dsp-view">
-          <header className="flex items-center justify-between px-6 pt-12 pb-4 border-b border-zinc-900">
-            <div>
-              <h2 className="text-xl font-bold">{t("dsp.title")}</h2>
-              <p className="text-xs text-zinc-600 mt-0.5">
-                {t("dsp.subtitle")}
-              </p>
-            </div>
-            <div className="flex items-center gap-4">
-              <Button
-                variant="secondary"
-                onClick={() => setShowDspAutoModal(true)}
-                className="text-xs px-3 py-1.5 h-auto"
-              >
-                {t("dsp.autoButton")}
-              </Button>
-              <div className="flex items-center gap-2">
-                <div
-                  className={`w-2 h-2 rounded-full transition-all ${epicenterEnabled ? "bg-white shadow-[0_0_8px_rgba(255,255,255,0.8)]" : "bg-zinc-700"}`}
-                />
-                <Switch
-                  checked={epicenterEnabled}
-                  onCheckedChange={toggleEpicenter}
-                />
-              </div>
-            </div>
-          </header>
-          <div className="flex-1 flex flex-col justify-center px-4 py-8">
-            <div className="card-elevated rounded-2xl p-6">
-              <div className="grid grid-cols-3 gap-4 mb-6">
-                <KnobControl
-                  label={t("dsp.sweep")}
-                  value={dspParams.sweepFreq}
-                  min={27}
-                  max={63}
-                  step={1}
-                  unit=" Hz"
-                  onChange={(v) => updateDspParam("sweepFreq", v)}
-                  disabled={!epicenterEnabled}
-                />
-                <KnobControl
-                  label={t("dsp.width")}
-                  value={dspParams.width}
-                  min={0}
-                  max={100}
-                  step={1}
-                  unit="%"
-                  onChange={(v) => updateDspParam("width", v)}
-                  disabled={!epicenterEnabled}
-                />
-                <KnobControl
-                  label={t("dsp.intensity")}
-                  value={dspParams.intensity}
-                  min={0}
-                  max={100}
-                  step={1}
-                  unit="%"
-                  onChange={(v) => updateDspParam("intensity", v)}
-                  disabled={!epicenterEnabled}
-                />
-              </div>
-              <div className="flex justify-center gap-8">
-                <KnobControl
-                  label={t("dsp.balance")}
-                  value={dspParams.balance}
-                  min={0}
-                  max={100}
-                  step={1}
-                  unit="%"
-                  onChange={(v) => updateDspParam("balance", v)}
-                  disabled={!epicenterEnabled}
-                />
-                <KnobControl
-                  label={t("dsp.volume")}
-                  value={dspParams.volume}
-                  min={0}
-                  max={100}
-                  step={1}
-                  unit="%"
-                  onChange={(v) => updateDspParam("volume", v)}
-                />
-              </div>
-            </div>
-            <p className="text-center text-xs text-zinc-600 mt-6 px-8">
-              {t("dsp.description")}
-            </p>
-          </div>
-        </div>
+        <HomeDspView
+          t={t}
+          epicenterEnabled={epicenterEnabled}
+          params={dspControls}
+          onOpenAutoModal={() => setShowDspAutoModal(true)}
+          onToggleEpicenter={toggleEpicenter}
+        />
       )}
 
       {showEqAutoModal && (
@@ -1845,301 +1147,22 @@ export default function Home() {
         </div>
       )}
 
-      {/* Settings View */}
       {activeTab === "settings" && (
-        <div className="flex-1 flex flex-col" data-testid="settings-view">
-          <header className="px-6 pt-12 pb-6 border-b border-zinc-900">
-            <h2 className="text-xl font-bold">{t("settings.title")}</h2>
-          </header>
-          <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
-            {/* Appearance */}
-            {switchable && (
-              <div className="bg-zinc-900/50 rounded-2xl p-4">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-10 h-10 rounded-full bg-zinc-700/40 flex items-center justify-center">
-                    <Disc3 className="w-5 h-5 text-zinc-300" />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold">
-                      {t("settings.appearance")}
-                    </h3>
-                    <p className="text-xs text-zinc-500">
-                      {t("settings.appearanceDescription")}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between p-3 bg-zinc-800/50 rounded-xl">
-                  <div>
-                    <p className="font-medium">{t("settings.theme")}</p>
-                    <p className="text-xs text-zinc-500">
-                      {theme === "dark"
-                        ? t("settings.dark")
-                        : t("settings.light")}
-                    </p>
-                  </div>
-                  <Switch
-                    checked={theme === "dark"}
-                    onCheckedChange={toggleTheme}
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* Language */}
-            <div className="bg-zinc-900/50 rounded-2xl p-4">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 rounded-full bg-blue-600/20 flex items-center justify-center">
-                  <Globe className="w-5 h-5 text-blue-400" />
-                </div>
-                <div>
-                  <h3 className="font-semibold">{t("settings.language")}</h3>
-                  <p className="text-xs text-zinc-500">
-                    {t("settings.languageDescription")}
-                  </p>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <button
-                  onClick={() => setLanguage("es")}
-                  className={`w-full flex items-center justify-between p-3 rounded-xl transition-colors ${language === "es" ? "bg-white/10 border border-white/20" : "bg-zinc-800/50 hover:bg-zinc-800"}`}
-                >
-                  <span className="flex items-center gap-3">
-                    <span className="text-lg">🇪🇸</span>
-                    <span>{t("settings.spanish")}</span>
-                  </span>
-                  {language === "es" && (
-                    <span className="w-2 h-2 rounded-full bg-white" />
-                  )}
-                </button>
-                <button
-                  onClick={() => setLanguage("en")}
-                  className={`w-full flex items-center justify-between p-3 rounded-xl transition-colors ${language === "en" ? "bg-white/10 border border-white/20" : "bg-zinc-800/50 hover:bg-zinc-800"}`}
-                >
-                  <span className="flex items-center gap-3">
-                    <span className="text-lg">🇺🇸</span>
-                    <span>{t("settings.english")}</span>
-                  </span>
-                  {language === "en" && (
-                    <span className="w-2 h-2 rounded-full bg-white" />
-                  )}
-                </button>
-              </div>
-            </div>
-
-            {/* Crossfade */}
-            <div className="bg-zinc-900/50 rounded-2xl p-4">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 rounded-full bg-green-600/20 flex items-center justify-center">
-                  <Volume2 className="w-5 h-5 text-green-400" />
-                </div>
-                <div>
-                  <h3 className="font-semibold">{t("settings.playback")}</h3>
-                  <p className="text-xs text-zinc-500">
-                    {t("settings.playbackDescription")}
-                  </p>
-                </div>
-              </div>
-              <div className="space-y-4">
-                <div className="flex items-center justify-between p-3 bg-zinc-800/50 rounded-xl">
-                  <div>
-                    <p className="font-medium">{t("settings.crossfade")}</p>
-                    <p className="text-xs text-zinc-500">
-                      {t("settings.crossfadeDescription")}
-                    </p>
-                  </div>
-                  <Switch
-                    checked={crossfade.enabled}
-                    onCheckedChange={crossfade.setEnabled}
-                  />
-                </div>
-                {crossfade.enabled && (
-                  <div className="p-3 bg-zinc-800/30 rounded-xl">
-                    <p className="text-sm text-zinc-400 mb-3">
-                      {t("settings.crossfadeDuration")}
-                    </p>
-                    <div className="flex gap-2">
-                      {[3, 5, 7, 10].map((s) => (
-                        <button
-                          key={s}
-                          onClick={() => crossfade.setDuration(s)}
-                          className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${crossfade.duration === s ? "bg-white text-black" : "bg-zinc-700/50 text-zinc-400 hover:bg-zinc-700"}`}
-                        >
-                          {s}s
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* How to use */}
-            <div className="bg-zinc-900/50 rounded-2xl p-4">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 rounded-full bg-yellow-600/20 flex items-center justify-center">
-                  <BookOpen className="w-5 h-5 text-yellow-400" />
-                </div>
-                <div>
-                  <h3 className="font-semibold">{t("settings.howToUse")}</h3>
-                  <p className="text-xs text-zinc-500">
-                    {t("settings.howToUseDescription")}
-                  </p>
-                </div>
-              </div>
-              <Button
-                asChild
-                variant="secondary"
-                className="w-full justify-between"
-              >
-                <Link href="/how-to-use">
-                  <span>{t("settings.howToUseCta")}</span>
-                  <ChevronRight className="w-4 h-4 text-zinc-400" />
-                </Link>
-              </Button>
-            </div>
-
-            {/* About */}
-            <div className="bg-zinc-900/50 rounded-2xl p-4">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 rounded-full bg-purple-600/20 flex items-center justify-center">
-                  <Info className="w-5 h-5 text-purple-400" />
-                </div>
-                <div>
-                  <h3 className="font-semibold">{t("settings.about")}</h3>
-                  <p className="text-xs text-zinc-500">
-                    {t("settings.aboutDescription")}
-                  </p>
-                </div>
-              </div>
-              <div className="space-y-4">
-                <div className="flex items-center gap-4 p-3 bg-zinc-800/50 rounded-xl">
-                  <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-red-600 to-red-800 flex items-center justify-center">
-                    <svg
-                      className="w-8 h-8 text-white"
-                      viewBox="0 0 24 24"
-                      fill="currentColor"
-                    >
-                      <path d="M13 3L4 14h7l-2 7 9-11h-7l2-7z" />
-                    </svg>
-                  </div>
-                  <div>
-                    <h4 className="font-bold">{t("app.name")}</h4>
-                    <p className="text-sm text-zinc-500">
-                      {t("settings.version")} {t("app.version")}
-                    </p>
-                  </div>
-                </div>
-                <p className="text-sm text-zinc-400 leading-relaxed">
-                  {t("settings.description")}
-                </p>
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">
-                    {t("settings.features")}
-                  </p>
-                  <ul className="space-y-2 text-sm text-zinc-400">
-                    <li className="flex items-center gap-2">
-                      <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
-                      {t("settings.feature1")}
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
-                      {t("settings.feature2")}
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
-                      {t("settings.feature3")}
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
-                      {t("settings.feature4")}
-                    </li>
-                  </ul>
-                </div>
-              </div>
-            </div>
-
-            {/* Legal */}
-            <div className="bg-zinc-900/50 rounded-2xl p-4">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 rounded-full bg-emerald-600/20 flex items-center justify-center">
-                  <FileText className="w-5 h-5 text-emerald-400" />
-                </div>
-                <div>
-                  <h3 className="font-semibold">{t("settings.legal")}</h3>
-                  <p className="text-xs text-zinc-500">
-                    {t("settings.legalDescription")}
-                  </p>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Button
-                  asChild
-                  variant="secondary"
-                  className="w-full justify-between"
-                >
-                  <Link href="/privacy">
-                    <span>{t("settings.privacyPolicy")}</span>
-                    <ChevronRight className="w-4 h-4 text-zinc-400" />
-                  </Link>
-                </Button>
-                <Button
-                  asChild
-                  variant="secondary"
-                  className="w-full justify-between"
-                >
-                  <Link href="/terms">
-                    <span>{t("settings.terms")}</span>
-                    <ChevronRight className="w-4 h-4 text-zinc-400" />
-                  </Link>
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <HomeSettingsView
+          t={t}
+          switchable={switchable}
+          theme={theme}
+          toggleTheme={toggleTheme}
+          language={language}
+          setLanguage={setLanguage}
+          crossfadeEnabled={crossfade.enabled}
+          crossfadeDuration={crossfade.duration}
+          onCrossfadeEnabledChange={crossfade.setEnabled}
+          onCrossfadeDurationChange={crossfade.setDuration}
+        />
       )}
 
-      {/* Import Progress */}
-      {queue.importProgress.isImporting && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-6">
-          <div className="bg-zinc-900 rounded-2xl p-6 w-full max-w-sm border border-zinc-800 shadow-2xl">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-full bg-purple-600/20 flex items-center justify-center">
-                <Music2 className="w-5 h-5 text-purple-400 animate-pulse" />
-              </div>
-              <div>
-                <h3 className="font-semibold text-white">
-                  {t("actions.importingMusic")}
-                </h3>
-                <p className="text-sm text-zinc-400">
-                  {t("actions.ofTotal", {
-                    current: queue.importProgress.current + 1,
-                    total: queue.importProgress.total,
-                  })}
-                </p>
-              </div>
-            </div>
-            <div className="w-full h-2 bg-zinc-800 rounded-full overflow-hidden mb-3">
-              <div
-                className="h-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all duration-300"
-                style={{
-                  width: `${((queue.importProgress.current + 1) / queue.importProgress.total) * 100}%`,
-                }}
-              />
-            </div>
-            <p className="text-xs text-zinc-500 truncate">
-              {queue.importProgress.currentFileName}
-            </p>
-            <p className="text-center text-2xl font-bold text-white mt-4">
-              {Math.round(
-                ((queue.importProgress.current + 1) /
-                  queue.importProgress.total) *
-                  100,
-              )}
-              %
-            </p>
-          </div>
-        </div>
-      )}
+      <HomeImportProgressOverlay t={t} importProgress={queue.importProgress} />
 
       {/* Bottom Navigation */}
       <BottomNavigation

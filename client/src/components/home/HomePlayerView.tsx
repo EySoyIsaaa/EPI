@@ -13,11 +13,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { AudioQualityBadge } from "@/components/AudioQualityBadge";
 import { TrackArtwork } from "@/components/TrackArtwork";
 import type { Track } from "@/hooks/useAudioQueue";
+import type { TranslateFn } from "@/components/home/types";
 
-type TranslateFn = (
-  key: string,
-  params?: Record<string, string | number>,
-) => string;
 type TouchStartState = { index: number; y: number } | null;
 
 interface PlayerQueueState {
