@@ -190,7 +190,7 @@
   },
   "howToUse": {
     "title": "Cómo usar Epicenter Hi-Fi",
-    "intro": "Epicenter Hi-Fi es un reproductor local con procesamiento de audio avanzado. Sigue estos pasos para aprovecharlo al máximo.",
+    "intro": "Epicenter Hi-Fi v5.0.0 es un reproductor local con énfasis en Epicenter DSP e implementación de IA para experiencias de audio inteligentes.",
     "libraryTitle": "1. Importa tu música",
     "libraryBody": "Usa la pantalla principal de la biblioteca para importar archivos manualmente o escanear tu dispositivo en Android.",
     "playerTitle": "2. Inicia la reproducción",
@@ -200,7 +200,7 @@
     "eqTitle": "4. Ajusta el ecualizador",
     "eqBody": "Abre la pestaña EQ para ajustar las 31 bandas y volver a un sonido neutro cuando quieras.",
     "dspTitle": "5. Usa Epicenter DSP",
-    "dspBody": "Activa Epicenter DSP para restaurar graves y ajusta Sweep, Width, Intensity, Balance y Volume.",
+    "dspBody": "Activa Epicenter DSP como núcleo diferencial del proyecto y ajusta Sweep, Width, Intensity, Balance y Volume según tu perfil.",
     "playlistsTitle": "6. Crea playlists",
     "playlistsBody": "Crea playlists en la pestaña Playlists y reproduce en orden o en aleatorio al instante.",
     "tipsTitle": "Tips",
