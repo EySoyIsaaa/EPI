@@ -59,6 +59,27 @@ import {
 import { hiresAudioBadgeUrl, hiresLogoUrl } from "@/lib/assetUrls";
 import { toast } from "sonner";
 
+type HomeNavigationSnapshot = {
+  activeTab: TabType;
+  libraryView: LibraryView;
+  showQueue: boolean;
+  showEqAutoModal: boolean;
+  showDspAutoModal: boolean;
+  showCreatePlaylist: boolean;
+  showRenamePlaylist: boolean;
+  showDeletePlaylist: boolean;
+  showAddToPlaylist: boolean;
+  showAddSongsToPlaylist: boolean;
+  showOnboarding: boolean;
+  onboardingStep: number;
+  selectedPlaylistId: string | null;
+  contextMenuOpen: boolean;
+  playlistMenuOpen: boolean;
+  duplicatesModalOpen: boolean;
+};
+
+const HOME_NAVIGATION_STATE_KEY = "__epicenterHomeNav";
+
 const clampDspParam = (key: keyof StreamingParams, value: number): number => {
   switch (key) {
     case "sweepFreq":
@@ -874,6 +895,150 @@ export default function Home() {
     index: number;
     y: number;
   } | null>(null);
+  const isRestoringNavigationRef = useRef(false);
+  const lastNavigationSnapshotRef = useRef<HomeNavigationSnapshot | null>(null);
+
+  const buildNavigationSnapshot = useCallback(
+    (): HomeNavigationSnapshot => ({
+      activeTab,
+      libraryView,
+      showQueue,
+      showEqAutoModal,
+      showDspAutoModal,
+      showCreatePlaylist,
+      showRenamePlaylist,
+      showDeletePlaylist,
+      showAddToPlaylist: !!showAddToPlaylist,
+      showAddSongsToPlaylist,
+      showOnboarding,
+      onboardingStep,
+      selectedPlaylistId: selectedPlaylist?.id ?? null,
+      contextMenuOpen: !!contextMenu,
+      playlistMenuOpen: !!playlistMenu,
+      duplicatesModalOpen: showDuplicatesModal.length > 0,
+    }),
+    [
+      activeTab,
+      libraryView,
+      showQueue,
+      showEqAutoModal,
+      showDspAutoModal,
+      showCreatePlaylist,
+      showRenamePlaylist,
+      showDeletePlaylist,
+      showAddToPlaylist,
+      showAddSongsToPlaylist,
+      showOnboarding,
+      onboardingStep,
+      selectedPlaylist,
+      contextMenu,
+      playlistMenu,
+      showDuplicatesModal,
+    ],
+  );
+
+  const applyNavigationSnapshot = useCallback(
+    (snapshot: HomeNavigationSnapshot) => {
+      isRestoringNavigationRef.current = true;
+
+      setActiveTab(snapshot.activeTab);
+      setLibraryView(snapshot.libraryView);
+      setShowQueue(snapshot.showQueue);
+      setShowEqAutoModal(snapshot.showEqAutoModal);
+      setShowDspAutoModal(snapshot.showDspAutoModal);
+      setShowCreatePlaylist(snapshot.showCreatePlaylist);
+      setShowRenamePlaylist(snapshot.showRenamePlaylist);
+      setShowDeletePlaylist(snapshot.showDeletePlaylist);
+      setShowAddSongsToPlaylist(snapshot.showAddSongsToPlaylist);
+      setShowOnboarding(snapshot.showOnboarding);
+      setOnboardingStep(snapshot.onboardingStep);
+
+      if (!snapshot.showAddToPlaylist) {
+        setShowAddToPlaylist(null);
+      }
+      if (!snapshot.contextMenuOpen) {
+        setContextMenu(null);
+      }
+      if (!snapshot.playlistMenuOpen) {
+        setPlaylistMenu(null);
+      }
+      if (!snapshot.duplicatesModalOpen) {
+        setShowDuplicatesModal([]);
+      }
+
+      const snapshotPlaylist =
+        snapshot.selectedPlaylistId
+          ? playlistManager.playlists.find(
+              (playlist) => playlist.id === snapshot.selectedPlaylistId,
+            ) ?? null
+          : null;
+
+      if (snapshot.libraryView === "playlist-detail" && !snapshotPlaylist) {
+        setLibraryView("playlists");
+      }
+
+      setSelectedPlaylist(snapshotPlaylist);
+
+      window.setTimeout(() => {
+        isRestoringNavigationRef.current = false;
+      }, 0);
+    },
+    [playlistManager.playlists],
+  );
+
+  useEffect(() => {
+    const initialSnapshot = buildNavigationSnapshot();
+    lastNavigationSnapshotRef.current = initialSnapshot;
+
+    window.history.replaceState(
+      {
+        ...(window.history.state ?? {}),
+        [HOME_NAVIGATION_STATE_KEY]: initialSnapshot,
+      },
+      "",
+    );
+  }, []);
+
+  useEffect(() => {
+    if (isRestoringNavigationRef.current) return;
+
+    const nextSnapshot = buildNavigationSnapshot();
+    const previousSnapshot = lastNavigationSnapshotRef.current;
+
+    if (
+      previousSnapshot &&
+      JSON.stringify(previousSnapshot) === JSON.stringify(nextSnapshot)
+    ) {
+      return;
+    }
+
+    lastNavigationSnapshotRef.current = nextSnapshot;
+    window.history.pushState(
+      {
+        ...(window.history.state ?? {}),
+        [HOME_NAVIGATION_STATE_KEY]: nextSnapshot,
+      },
+      "",
+    );
+  }, [buildNavigationSnapshot]);
+
+  useEffect(() => {
+    const onPopState = (event: PopStateEvent) => {
+      const navigationSnapshot = event.state?.[
+        HOME_NAVIGATION_STATE_KEY
+      ] as HomeNavigationSnapshot | undefined;
+
+      if (!navigationSnapshot) {
+        return;
+      }
+
+      lastNavigationSnapshotRef.current = navigationSnapshot;
+      applyNavigationSnapshot(navigationSnapshot);
+    };
+
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [applyNavigationSnapshot]);
 
   const dspControls = useMemo<DspParamConfig[]>(
     () => [
