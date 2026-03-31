@@ -3,6 +3,8 @@ package com.epicenter.hifi;
 import android.os.Bundle;
 import android.util.Log;
 
+import androidx.activity.OnBackPressedCallback;
+
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
@@ -17,7 +19,22 @@ public class MainActivity extends BridgeActivity {
       Log.e("MusicScanner", "❌ ERROR al registrar plugin: " + e.getMessage());
       e.printStackTrace();
     }
-    
+
     super.onCreate(savedInstanceState);
+    configureAndroidBackNavigation();
+  }
+
+  private void configureAndroidBackNavigation() {
+    getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+      @Override
+      public void handleOnBackPressed() {
+        if (getBridge() != null && getBridge().getWebView() != null && getBridge().getWebView().canGoBack()) {
+          getBridge().getWebView().goBack();
+          return;
+        }
+
+        moveTaskToBack(true);
+      }
+    });
   }
 }

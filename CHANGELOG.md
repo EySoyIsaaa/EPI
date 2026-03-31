@@ -8,7 +8,8 @@
 
 ## 📌 Índice
 
-- [Versión Actual](#versión-actual-200)
+- [Versión Actual](#-versión-actual-500)
+- [Versión 5.0.0](#versión-500---27-marzo-2026)
 - [Versión 2.0.0](#versión-200---31-enero-2026)
 - [Versión 1.2.0](#versión-120---30-enero-2025)
 - [Versión 1.1.4](#versión-114---30-enero-2025)
@@ -18,10 +19,10 @@
 
 ---
 
-## 🎵 Versión Actual: 2.0.0
+## 🎵 Versión Actual: 5.0.0
 
-**Fecha:** 31 de Enero 2026  
-**Version Code:** 9  
+**Fecha:** 27 de marzo de 2026  
+**Version Code:** 10  
 **SDK Android:** 35 (Android 15)  
 
 ### Estado:
@@ -30,6 +31,27 @@
 ---
 
 # 📦 Historial de Versiones
+
+---
+
+## Versión 5.0.0 - 27 marzo 2026
+
+### 🎯 Cambio Principal: Lanzamiento enfocado a Inovatec (Epicenter + IA)
+
+Actualización de documentación y narrativa del producto para posicionar Epicenter Hi-Fi como un **reproductor musical con diferenciador técnico en Epicenter DSP e implementación de IA**.
+
+### ✨ Cambios destacados:
+
+- Documentación oficial actualizada a versión **5.0.0** con fecha **27 de marzo de 2026**.
+- Énfasis estratégico en el rol de **Epicenter** como núcleo del procesamiento.
+- Énfasis en la **implementación de IA** como requisito de innovación para concurso Inovatec.
+- Ajuste de UX Android para navegación con botón **Back** sin cierre inmediato de la app.
+
+### 🔧 Cambios técnicos:
+
+- Se actualizó `README.md` con posicionamiento de producto y propuesta diferencial.
+- Se actualizó `ACTUALIZACIONES_FUTURAS.md` con registro vigente y prioridades alineadas a Inovatec.
+- Se mejoró `MainActivity.java` para usar navegación hacia atrás del WebView antes de cerrar la aplicación.
 
 ---
 

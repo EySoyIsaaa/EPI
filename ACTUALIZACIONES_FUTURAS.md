@@ -1,8 +1,11 @@
 # Actualizaciones futuras de Epicenter Player
 
-Este documento reúne una hoja de ruta práctica para futuras mejoras del proyecto.
-No reemplaza tickets ni issues, pero sirve como referencia para priorizar trabajo técnico,
-de producto y de mantenimiento.
+**Registro vigente:** v5.0.0  
+**Fecha de actualización:** 27 de marzo de 2026
+
+## Contexto estratégico (Inovatec)
+
+Epicenter Player sigue siendo un reproductor musical, pero la ruta de producto se centra en el núcleo **Epicenter DSP** y en la **implementación de IA** como principal factor de innovación frente a reproductores convencionales.
 
 ---
 

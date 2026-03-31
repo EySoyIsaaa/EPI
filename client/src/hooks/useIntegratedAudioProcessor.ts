@@ -97,6 +97,7 @@ export interface IntegratedAudioController {
   getCurrentDspParams: () => StreamingParams;
   setOnTrackEnded: (callback: (() => void) | null) => void;
   setCrossfadeConfig: (config: CrossfadeConfig) => void;
+  resetAfterError: () => void;
   eqBands: EqualizerBand[];
   eqEnabled: boolean;
   epicenterEnabled: boolean;
@@ -576,6 +577,40 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
     crossfadeConfigRef.current = config;
   }, []);
 
+  const resetAfterError = useCallback(() => {
+    if (crossfadeTimeoutRef.current) {
+      clearTimeout(crossfadeTimeoutRef.current);
+      crossfadeTimeoutRef.current = null;
+    }
+
+    isCrossfadingRef.current = false;
+    pendingCrossfadeInRef.current = false;
+
+    if (audioElementRef.current) {
+      audioElementRef.current.pause();
+      audioElementRef.current.removeAttribute('src');
+      audioElementRef.current.load();
+    }
+
+    if (sourceNodeRef.current) {
+      try {
+        sourceNodeRef.current.disconnect();
+      } catch (_error) {
+        // no-op
+      }
+      sourceNodeRef.current = null;
+    }
+
+    if (masterGainRef.current && audioContextRef.current) {
+      masterGainRef.current.gain.setValueAtTime(1.0, audioContextRef.current.currentTime);
+    }
+
+    setIsReady(false);
+    setIsPlaying(false);
+    setCurrentTime(0);
+    setDuration(0);
+  }, []);
+
   return {
     isReady,
     isPlaying,
@@ -594,6 +629,7 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
     getCurrentDspParams,
     setOnTrackEnded,
     setCrossfadeConfig,
+    resetAfterError,
     eqBands,
     eqEnabled,
     epicenterEnabled,
