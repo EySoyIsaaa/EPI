@@ -33,6 +33,11 @@ export interface Track {
   sourceUri?: string;
   sourceType?: 'file' | 'media-store';
   albumArtUri?: string;
+  mediaStoreId?: string;
+  dateModified?: number;
+  sourceVersionKey?: string;
+  unavailable?: boolean;
+  lastValidatedAt?: number;
 }
 
 export interface ImportResult {
@@ -54,6 +59,7 @@ export interface QueueController {
   // Funciones de biblioteca
   addToLibrary: (files: File[]) => Promise<ImportResult>;
   addMediaStoreTracks: (tracks: AndroidMusicFile[], getAlbumArtFn?: (albumArtUri: string) => Promise<string | null>) => Promise<ImportResult>;
+  reconcileMediaStoreTracks: (tracks: AndroidMusicFile[]) => Promise<{ updated: number; missing: number }>;
   removeFromLibrary: (id: string) => Promise<void>;
   clearLibrary: () => Promise<void>;
   // Funciones de cola
@@ -139,6 +145,11 @@ export function useAudioQueue(): QueueController {
               sourceUri: metadata.sourceUri,
               sourceType: metadata.sourceType,
               albumArtUri: metadata.albumArtUri,
+              mediaStoreId: metadata.mediaStoreId,
+              dateModified: metadata.dateModified,
+              sourceVersionKey: metadata.sourceVersionKey,
+              unavailable: metadata.unavailable,
+              lastValidatedAt: metadata.lastValidatedAt,
             });
           } catch (error) {
             logger.error(`[Library] Error loading track ${metadata.id}:`, error);
@@ -393,7 +404,13 @@ export function useAudioQueue(): QueueController {
         currentFileName: trackInfo.name,
       });
 
-      const fingerprint = musicLibraryDB.generateFingerprint(trackInfo.name, trackInfo.size || 0);
+      const fingerprint = musicLibraryDB.generateFingerprint(trackInfo.name, trackInfo.size || 0, {
+        duration: trackInfo.duration || 0,
+        artist: trackInfo.artist,
+        title: trackInfo.title,
+        sourceType: 'media-store',
+        mediaStoreId: trackInfo.id,
+      });
 
       try {
         const existingTrack = await musicLibraryDB.findTrackByFingerprint(fingerprint);
@@ -435,6 +452,11 @@ export function useAudioQueue(): QueueController {
         addedAt: Date.now(),
         sourceUri: trackInfo.contentUri,
         sourceType: 'media-store',
+        mediaStoreId: trackInfo.id,
+        dateModified: trackInfo.dateModified,
+        sourceVersionKey: trackInfo.sourceVersionKey,
+        unavailable: false,
+        lastValidatedAt: Date.now(),
         fingerprint,
         bitDepth,
         sampleRate,
@@ -461,6 +483,11 @@ export function useAudioQueue(): QueueController {
         fileType: metadata.fileType,
         sourceUri: metadata.sourceUri,
         sourceType: metadata.sourceType,
+        mediaStoreId: metadata.mediaStoreId,
+        dateModified: metadata.dateModified,
+        sourceVersionKey: metadata.sourceVersionKey,
+        unavailable: metadata.unavailable,
+        lastValidatedAt: metadata.lastValidatedAt,
         bitDepth,
         sampleRate,
         bitrate,
@@ -485,6 +512,152 @@ export function useAudioQueue(): QueueController {
       duplicates,
     };
   }, []);
+
+  const reconcileMediaStoreTracks = useCallback(async (
+    scannedTracks: AndroidMusicFile[],
+  ): Promise<{ updated: number; missing: number }> => {
+    if (scannedTracks.length === 0) {
+      return { updated: 0, missing: 0 };
+    }
+
+    const byMediaStoreId = new Map(scannedTracks.map((track) => [track.id, track]));
+    const bySourceUri = new Map(scannedTracks.map((track) => [track.contentUri, track]));
+
+    let updated = 0;
+    let missing = 0;
+
+    const updates = await Promise.all(
+      library
+        .filter((track) => track.sourceType === 'media-store')
+        .map(async (track) => {
+          const mediaStoreIdFromTrack = track.mediaStoreId || track.id.replace(/^media-/, '');
+          const match =
+            bySourceUri.get(track.sourceUri || '') ||
+            byMediaStoreId.get(mediaStoreIdFromTrack);
+
+          if (!match) {
+            missing += 1;
+            if (track.unavailable) {
+              return track;
+            }
+            const unavailableTrack = {
+              ...track,
+              unavailable: true,
+              lastValidatedAt: Date.now(),
+            };
+
+            await musicLibraryDB.saveTrackReference(track.id, {
+              title: unavailableTrack.title,
+              artist: unavailableTrack.artist,
+              duration: unavailableTrack.duration,
+              bitDepth: unavailableTrack.bitDepth,
+              sampleRate: unavailableTrack.sampleRate,
+              bitrate: unavailableTrack.bitrate,
+              isHiRes: unavailableTrack.isHiRes,
+              coverBase64: unavailableTrack.coverUrl,
+              fileName: unavailableTrack.fileName || unavailableTrack.title,
+              fileType: unavailableTrack.fileType || 'audio/mpeg',
+              fileSize: 0,
+              addedAt: Date.now(),
+              sourceUri: unavailableTrack.sourceUri,
+              sourceType: 'media-store',
+              albumArtUri: unavailableTrack.albumArtUri,
+              mediaStoreId: unavailableTrack.mediaStoreId,
+              dateModified: unavailableTrack.dateModified,
+              sourceVersionKey: unavailableTrack.sourceVersionKey,
+              unavailable: true,
+              lastValidatedAt: unavailableTrack.lastValidatedAt,
+              fingerprint: musicLibraryDB.generateFingerprint(
+                unavailableTrack.fileName || unavailableTrack.title,
+                0,
+                {
+                  duration: unavailableTrack.duration,
+                  artist: unavailableTrack.artist,
+                  title: unavailableTrack.title,
+                  sourceType: 'media-store',
+                  mediaStoreId: unavailableTrack.mediaStoreId,
+                },
+              ),
+            });
+
+            return unavailableTrack;
+          }
+
+          const sourceVersionKey = match.sourceVersionKey || `${match.id}:${match.size}:${match.dateModified || 0}`;
+          const fingerprint = musicLibraryDB.generateFingerprint(match.name, match.size || 0, {
+            duration: match.duration || 0,
+            artist: match.artist,
+            title: match.title,
+            sourceType: 'media-store',
+            mediaStoreId: match.id,
+          });
+
+          const nextTrack: Track = {
+            ...track,
+            title: match.title || track.title,
+            artist: match.artist || track.artist,
+            duration: match.duration || track.duration,
+            fileName: match.name || track.fileName,
+            fileType: match.mimeType || track.fileType,
+            sourceUri: match.contentUri || track.sourceUri,
+            mediaStoreId: match.id,
+            dateModified: match.dateModified,
+            sourceVersionKey,
+            unavailable: false,
+            lastValidatedAt: Date.now(),
+            bitDepth: typeof match.bitDepth === 'number' ? match.bitDepth : track.bitDepth,
+            sampleRate: typeof match.sampleRate === 'number' ? match.sampleRate : track.sampleRate,
+            bitrate: typeof match.bitrate === 'number' ? match.bitrate : track.bitrate,
+            isHiRes: typeof match.isHiRes === 'boolean' ? match.isHiRes : track.isHiRes,
+          };
+
+          const changed =
+            track.sourceUri !== nextTrack.sourceUri ||
+            track.sourceVersionKey !== nextTrack.sourceVersionKey ||
+            track.unavailable !== nextTrack.unavailable ||
+            track.fileName !== nextTrack.fileName;
+
+          if (changed) {
+            updated += 1;
+            await musicLibraryDB.saveTrackReference(track.id, {
+              title: nextTrack.title,
+              artist: nextTrack.artist,
+              duration: nextTrack.duration,
+              fileName: nextTrack.fileName || nextTrack.title,
+              fileType: nextTrack.fileType || 'audio/mpeg',
+              fileSize: match.size || 0,
+              addedAt: Date.now(),
+              sourceUri: nextTrack.sourceUri,
+              sourceType: 'media-store',
+              albumArtUri: nextTrack.albumArtUri,
+              mediaStoreId: nextTrack.mediaStoreId,
+              dateModified: nextTrack.dateModified,
+              sourceVersionKey: nextTrack.sourceVersionKey,
+              unavailable: false,
+              lastValidatedAt: nextTrack.lastValidatedAt,
+              fingerprint,
+              bitDepth: nextTrack.bitDepth,
+              sampleRate: nextTrack.sampleRate,
+              bitrate: nextTrack.bitrate,
+              isHiRes: nextTrack.isHiRes,
+              coverBase64: nextTrack.coverUrl,
+            });
+          }
+
+          return changed ? nextTrack : track;
+        }),
+    );
+
+    setLibrary((prev) =>
+      prev.map((track) => {
+        if (track.sourceType !== 'media-store') return track;
+        const reconciled = updates.find((candidate) => candidate.id === track.id);
+        return reconciled || track;
+      }),
+    );
+
+    return { updated, missing };
+  }, [library]);
 
   const removeFromLibrary = useCallback(async (id: string) => {
     // Eliminar de IndexedDB
@@ -729,6 +902,7 @@ export function useAudioQueue(): QueueController {
     currentTrack,
     addToLibrary,
     addMediaStoreTracks,
+    reconcileMediaStoreTracks,
     removeFromLibrary,
     clearLibrary,
     addToQueue,

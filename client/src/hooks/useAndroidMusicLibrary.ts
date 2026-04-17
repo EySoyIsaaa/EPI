@@ -17,6 +17,8 @@ export interface AndroidMusicFile {
   sampleRate?: number;
   bitrate?: number;
   isHiRes?: boolean;
+  dateModified?: number;
+  sourceVersionKey?: string;
 }
 
 export interface ScanProgress {
@@ -121,6 +123,8 @@ export function useAndroidMusicLibrary() {
           sampleRate: typeof file.sampleRate === 'number' ? file.sampleRate : undefined,
           bitrate: typeof file.bitrate === 'number' ? file.bitrate : undefined,
           isHiRes: typeof file.isHiRes === 'boolean' ? file.isHiRes : undefined,
+          dateModified: typeof file.dateModified === 'number' ? file.dateModified : undefined,
+          sourceVersionKey: typeof file.sourceVersionKey === 'string' ? file.sourceVersionKey : undefined,
         }));
       
       logger.info('🎵 Archivos procesados:', files.length);
@@ -206,7 +210,11 @@ export function useAndroidMusicLibrary() {
    * Obtiene una URL de archivo accesible desde un content:// URI
    * Copia el archivo a caché para reproducción eficiente (especialmente para FLAC/WAV)
    */
-  const getAudioFileUrl = async (contentUri: string, trackId: string): Promise<string | null> => {
+  const getAudioFileUrl = async (
+    contentUri: string,
+    trackId: string,
+    options?: { expectedSize?: number; sourceVersionKey?: string },
+  ): Promise<string | null> => {
     try {
       const MusicScanner = getPlugin();
       
@@ -216,7 +224,12 @@ export function useAndroidMusicLibrary() {
       }
 
       logger.debug('🎵 Obteniendo URL de archivo para:', contentUri);
-      const result = await MusicScanner.getAudioFileUrl({ contentUri, trackId });
+      const result = await MusicScanner.getAudioFileUrl({
+        contentUri,
+        trackId,
+        expectedSize: options?.expectedSize,
+        sourceVersionKey: options?.sourceVersionKey,
+      });
       
       if (result?.filePath) {
         // Convertir la ruta del archivo a una URL que Capacitor puede servir
