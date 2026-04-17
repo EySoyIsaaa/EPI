@@ -6,7 +6,7 @@
  */
 
 const DB_NAME = 'epicenter-music-db';
-const DB_VERSION = 3; // Upgraded for playlists
+const DB_VERSION = 4; // v4 adds robust source identity metadata
 const TRACKS_STORE = 'tracks';
 const AUDIO_STORE = 'audio-files';
 const PLAYLISTS_STORE = 'playlists';
@@ -28,6 +28,11 @@ export interface StoredTrackMetadata {
   sourceUri?: string;
   sourceType?: 'file' | 'media-store';
   albumArtUri?: string;
+  mediaStoreId?: string;
+  dateModified?: number;
+  sourceVersionKey?: string;
+  unavailable?: boolean;
+  lastValidatedAt?: number;
   // For duplicate detection
   fingerprint?: string; // fileName + fileSize combination
 }
@@ -59,7 +64,7 @@ class MusicLibraryDB {
 
       request.onsuccess = () => {
         this.db = request.result;
-        console.log('[MusicLibraryDB] Database initialized v3');
+        console.log('[MusicLibraryDB] Database initialized v4');
         resolve();
       };
 
@@ -73,13 +78,21 @@ class MusicLibraryDB {
           tracksStore.createIndex('artist', 'artist', { unique: false });
           tracksStore.createIndex('addedAt', 'addedAt', { unique: false });
           tracksStore.createIndex('fingerprint', 'fingerprint', { unique: false });
+          tracksStore.createIndex('sourceUri', 'sourceUri', { unique: false });
+          tracksStore.createIndex('mediaStoreId', 'mediaStoreId', { unique: false });
         } else {
-          // Add fingerprint index if upgrading from v2
+          // Add missing indexes on upgrade
           const transaction = (event.target as IDBOpenDBRequest).transaction;
           if (transaction) {
             const tracksStore = transaction.objectStore(TRACKS_STORE);
             if (!tracksStore.indexNames.contains('fingerprint')) {
               tracksStore.createIndex('fingerprint', 'fingerprint', { unique: false });
+            }
+            if (!tracksStore.indexNames.contains('sourceUri')) {
+              tracksStore.createIndex('sourceUri', 'sourceUri', { unique: false });
+            }
+            if (!tracksStore.indexNames.contains('mediaStoreId')) {
+              tracksStore.createIndex('mediaStoreId', 'mediaStoreId', { unique: false });
             }
           }
         }
@@ -108,8 +121,24 @@ class MusicLibraryDB {
   }
 
   // Generate fingerprint for duplicate detection
-  generateFingerprint(fileName: string, fileSize: number): string {
-    return `${fileName.toLowerCase().trim()}_${fileSize}`;
+  generateFingerprint(
+    fileName: string,
+    fileSize: number,
+    options?: {
+      duration?: number;
+      artist?: string;
+      title?: string;
+      sourceType?: 'file' | 'media-store';
+      mediaStoreId?: string;
+    }
+  ): string {
+    const normalizedName = fileName.toLowerCase().trim();
+    const normalizedArtist = (options?.artist || '').toLowerCase().trim();
+    const normalizedTitle = (options?.title || '').toLowerCase().trim();
+    const normalizedDuration = Math.round((options?.duration || 0) * 10) / 10;
+    const sourceType = options?.sourceType || 'file';
+    const mediaStorePart = options?.mediaStoreId ? `_${options.mediaStoreId}` : '';
+    return `${sourceType}${mediaStorePart}_${normalizedName}_${fileSize}_${normalizedDuration}_${normalizedArtist}_${normalizedTitle}`;
   }
 
   // Check if track already exists by fingerprint

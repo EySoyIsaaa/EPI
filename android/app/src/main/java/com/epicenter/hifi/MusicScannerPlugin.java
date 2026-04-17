@@ -27,6 +27,7 @@ import java.io.FileOutputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.security.MessageDigest;
 
 @CapacitorPlugin(
   name = "MusicScanner",
@@ -192,6 +193,8 @@ public class MusicScannerPlugin extends Plugin {
   public void getAudioFileUrl(PluginCall call) {
     String contentUri = call.getString("contentUri");
     String trackId = call.getString("trackId");
+    String sourceVersionKey = call.getString("sourceVersionKey");
+    Long expectedSize = call.getLong("expectedSize");
     
     if (contentUri == null || contentUri.isEmpty()) {
       call.reject("contentUri is required");
@@ -228,12 +231,19 @@ public class MusicScannerPlugin extends Plugin {
         extension = ".ogg";
       }
       
+      String cacheIdentity = contentUri + "|" + (sourceVersionKey != null ? sourceVersionKey : trackId);
+      String cacheHash = sha1(cacheIdentity);
+
       // Crear archivo en caché
       File cacheDir = getAudioCacheDir();
-      File outputFile = new File(cacheDir, "track_" + trackId + extension);
+      File outputFile = new File(cacheDir, "track_" + cacheHash + extension);
+      File tempFile = new File(cacheDir, "track_" + cacheHash + extension + ".tmp");
       
       // Si el archivo ya existe en caché, devolverlo directamente
       if (outputFile.exists()) {
+        if (outputFile.length() == 0 || (expectedSize != null && expectedSize > 0 && outputFile.length() != expectedSize)) {
+          outputFile.delete();
+        } else {
         android.util.Log.d("MusicScanner", "✅ Archivo ya en caché: " + outputFile.getAbsolutePath());
         JSObject result = new JSObject();
         result.put("filePath", outputFile.getAbsolutePath());
@@ -241,6 +251,7 @@ public class MusicScannerPlugin extends Plugin {
         result.put("cached", true);
         call.resolve(result);
         return;
+        }
       }
       
       // Copiar archivo desde content:// a caché
@@ -250,7 +261,11 @@ public class MusicScannerPlugin extends Plugin {
         return;
       }
 
-      OutputStream outputStream = new FileOutputStream(outputFile);
+      if (tempFile.exists()) {
+        tempFile.delete();
+      }
+
+      OutputStream outputStream = new FileOutputStream(tempFile);
       byte[] buffer = new byte[8192];
       int bytesRead;
       long totalBytes = 0;
@@ -262,6 +277,28 @@ public class MusicScannerPlugin extends Plugin {
       
       inputStream.close();
       outputStream.close();
+
+      if (totalBytes <= 0) {
+        tempFile.delete();
+        call.reject("Copied file is empty");
+        return;
+      }
+
+      if (expectedSize != null && expectedSize > 0 && totalBytes != expectedSize) {
+        tempFile.delete();
+        call.reject("Copied file size mismatch");
+        return;
+      }
+
+      if (outputFile.exists()) {
+        outputFile.delete();
+      }
+
+      if (!tempFile.renameTo(outputFile)) {
+        tempFile.delete();
+        call.reject("Could not finalize cached file");
+        return;
+      }
 
       android.util.Log.d("MusicScanner", "✅ Archivo copiado a caché: " + outputFile.getAbsolutePath() + " (" + totalBytes + " bytes)");
 
@@ -275,6 +312,20 @@ public class MusicScannerPlugin extends Plugin {
       android.util.Log.e("MusicScanner", "❌ Error obteniendo audio: " + e.getMessage());
       e.printStackTrace();
       call.reject("Error getting audio: " + e.getMessage(), e);
+    }
+  }
+
+  private String sha1(String value) {
+    try {
+      MessageDigest md = MessageDigest.getInstance("SHA-1");
+      byte[] digest = md.digest(value.getBytes());
+      StringBuilder sb = new StringBuilder();
+      for (byte b : digest) {
+        sb.append(String.format("%02x", b));
+      }
+      return sb.toString();
+    } catch (Exception e) {
+      return String.valueOf(value.hashCode());
     }
   }
 
@@ -370,7 +421,8 @@ public class MusicScannerPlugin extends Plugin {
       MediaStore.Audio.Media.DURATION,
       MediaStore.Audio.Media.SIZE,
       MediaStore.Audio.Media.MIME_TYPE,
-      MediaStore.Audio.Media.ALBUM_ID
+      MediaStore.Audio.Media.ALBUM_ID,
+      MediaStore.Audio.Media.DATE_MODIFIED
     };
 
     // NO filtrar por IS_MUSIC para incluir archivos Hi-Res
@@ -398,6 +450,7 @@ public class MusicScannerPlugin extends Plugin {
       int sizeColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.SIZE);
       int mimeColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.MIME_TYPE);
       int albumIdColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID);
+      int dateModifiedColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_MODIFIED);
 
       while (cursor.moveToNext()) {
         long id = cursor.getLong(idColumn);
@@ -409,6 +462,7 @@ public class MusicScannerPlugin extends Plugin {
         long size = cursor.getLong(sizeColumn);
         String mimeType = cursor.getString(mimeColumn);
         long albumId = cursor.getLong(albumIdColumn);
+        long dateModified = cursor.getLong(dateModifiedColumn);
 
         // Filtrar solo archivos de audio válidos
         if (mimeType == null || !mimeType.startsWith("audio/")) {
@@ -445,6 +499,8 @@ public class MusicScannerPlugin extends Plugin {
         fileObj.put("mimeType", mimeType != null ? mimeType : "audio/mpeg");
         fileObj.put("contentUri", contentUri.toString());
         fileObj.put("albumArtUri", albumArtUri.toString());
+        fileObj.put("dateModified", dateModified);
+        fileObj.put("sourceVersionKey", id + ":" + size + ":" + dateModified);
         if (formatInfo.bitDepth != null) fileObj.put("bitDepth", formatInfo.bitDepth);
         if (formatInfo.sampleRate != null) fileObj.put("sampleRate", formatInfo.sampleRate);
         if (formatInfo.bitrate != null) fileObj.put("bitrate", formatInfo.bitrate);

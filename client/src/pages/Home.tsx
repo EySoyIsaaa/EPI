@@ -175,6 +175,7 @@ export default function Home() {
   const playTimeoutRef = useRef<number | null>(null);
   const autoOptimizationTimeoutRef = useRef<number | null>(null);
   const failedQueueTrackIdsRef = useRef<Set<string>>(new Set());
+  const mediaStoreReconciledRef = useRef(false);
 
   const hiResTracks = useMemo(
     () => queue.library.filter((track) => track.isHiRes),
@@ -409,6 +410,10 @@ export default function Home() {
   const resolveTrackSource = useCallback(
     async (track: Track): Promise<File | string> => {
       if (track.sourceType === "media-store" && track.sourceUri) {
+        if (track.unavailable) {
+          throw new Error("Track source not available");
+        }
+
         const stableLibraryTrack = queue.library.find(
           (libraryTrack) =>
             libraryTrack.sourceType === "media-store" &&
@@ -418,6 +423,10 @@ export default function Home() {
         const fileUrl = await androidMusicLibrary.getAudioFileUrl(
           track.sourceUri,
           stableLibraryTrack?.id ?? track.id,
+          {
+            expectedSize: stableLibraryTrack?.file?.size,
+            sourceVersionKey: stableLibraryTrack?.sourceVersionKey,
+          },
         );
 
         if (!fileUrl) {
@@ -471,6 +480,40 @@ export default function Home() {
       clearPendingPlaybackTimers();
     };
   }, [clearPendingPlaybackTimers]);
+
+  useEffect(() => {
+    const reconcileMediaStore = async () => {
+      if (queue.isLoading || !androidMusicLibrary.isAndroid) return;
+
+      const hasMediaStoreTracks = queue.library.some(
+        (track) => track.sourceType === "media-store",
+      );
+
+      if (!hasMediaStoreTracks) return;
+      if (mediaStoreReconciledRef.current) return;
+
+      const hasPermission = await androidMusicLibrary.checkPermissions();
+      if (!hasPermission) return;
+
+      try {
+        const scannedTracks = await androidMusicLibrary.scanMusicLibrary();
+        const result = await queue.reconcileMediaStoreTracks(scannedTracks);
+        mediaStoreReconciledRef.current = true;
+        if (result.updated > 0 || result.missing > 0) {
+          console.info("[Library] MediaStore reconciled", result);
+        }
+      } catch (error) {
+        console.warn("[Library] MediaStore reconciliation failed", error);
+      }
+    };
+
+    void reconcileMediaStore();
+  }, [
+    androidMusicLibrary,
+    queue.isLoading,
+    queue.library,
+    queue.reconcileMediaStoreTracks,
+  ]);
 
   // Cargar última canción al iniciar (sin autoplay)
   const lastTrackLoadedRef = useRef(false);
