@@ -77,6 +77,7 @@ export interface QueueController {
   playTrack: (index: number) => void;
   nextTrack: () => void;
   previousTrack: () => void;
+  persistEphemeralTrack: (trackId: string) => Promise<boolean>;
   // Legacy compatibility
   addTrack: (file: File) => Promise<void>;
   addTracks: (files: File[]) => Promise<void>;
@@ -884,6 +885,48 @@ export function useAudioQueue(): QueueController {
     });
   }, [queue.length]);
 
+  const persistEphemeralTrack = useCallback(async (trackId: string): Promise<boolean> => {
+    const targetTrack = library.find((track) => track.id === trackId);
+    if (!targetTrack || !targetTrack.isEphemeral) {
+      return false;
+    }
+
+    const file = targetTrack.file ?? fileCacheRef.current.get(trackId);
+    if (!file) {
+      logger.warn(`[Library] Cannot persist ephemeral track ${trackId}: file not available`);
+      return false;
+    }
+
+    const fingerprint = musicLibraryDB.generateFingerprint(file.name, file.size);
+    const audioBlob = await fileToBlob(file);
+
+    await musicLibraryDB.saveTrack(trackId, {
+      title: targetTrack.title,
+      artist: targetTrack.artist,
+      duration: targetTrack.duration,
+      bitDepth: targetTrack.bitDepth,
+      sampleRate: targetTrack.sampleRate,
+      bitrate: targetTrack.bitrate,
+      isHiRes: targetTrack.isHiRes,
+      coverBase64: targetTrack.coverUrl,
+      fileName: targetTrack.fileName || file.name,
+      fileType: targetTrack.fileType || file.type || 'audio/mpeg',
+      fileSize: file.size,
+      addedAt: Date.now(),
+      sourceType: 'file',
+      fingerprint,
+    }, audioBlob);
+
+    setLibrary((prev) =>
+      prev.map((track) =>
+        track.id === trackId ? { ...track, isEphemeral: false, file } : track,
+      ),
+    );
+    fileCacheRef.current.set(trackId, file);
+    logger.info(`[Library] Persisted ephemeral track ${trackId}`);
+    return true;
+  }, [library]);
+
   // === LEGACY COMPATIBILITY ===
   
   const addTrack = useCallback(async (file: File) => {
@@ -935,6 +978,7 @@ export function useAudioQueue(): QueueController {
     playTrack,
     nextTrack,
     previousTrack,
+    persistEphemeralTrack,
     addTrack,
     addTracks,
     addTrackToEnd,

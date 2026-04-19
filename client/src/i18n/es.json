@@ -110,7 +110,11 @@
     "save": "Guardar",
     "autoOptimizedPreset": "Ajuste automático aplicado a la canción",
     "swipeQueueIndicator": "Agregar a cola",
-    "swipeNextIndicator": "Reproducir siguiente"
+    "swipeNextIndicator": "Reproducir siguiente",
+    "sessionOnly": "Solo sesión",
+    "persistTrack": "Guardar en dispositivo",
+    "persistTrackSuccess": "Canción guardada correctamente en almacenamiento local",
+    "persistTrackFailed": "No se pudo guardar la canción de forma persistente"
   },
   "duplicates": {
     "title": "Canciones Duplicadas",

@@ -916,6 +916,23 @@ export default function Home() {
     setShowQueue(false);
   };
 
+  const handlePersistEphemeralTrack = useCallback(
+    async (track: Track) => {
+      try {
+        const persisted = await queue.persistEphemeralTrack(track.id);
+        if (persisted) {
+          toast.success(t("actions.persistTrackSuccess"));
+        } else {
+          toast.error(t("actions.persistTrackFailed"));
+        }
+      } catch (error) {
+        console.error("Error persisting track:", error);
+        toast.error(t("actions.persistTrackFailed"));
+      }
+    },
+    [queue, t],
+  );
+
   const handleShufflePlay = (tracks: Track[]) => {
     if (tracks.length === 0) {
       toast.error(t("actions.noSongsToPlay"));
@@ -1393,6 +1410,7 @@ export default function Home() {
           onPlayInOrder={handlePlayInOrder}
           onShufflePlay={handleShufflePlay}
           onOpenAddToPlaylist={handleOpenAddToPlaylist}
+          onPersistEphemeralTrack={handlePersistEphemeralTrack}
           onOpenAddSongsToPlaylist={() => setShowAddSongsToPlaylist(true)}
           onOpenDeletePlaylist={(playlist) => {
             setSelectedPlaylist(playlist);
