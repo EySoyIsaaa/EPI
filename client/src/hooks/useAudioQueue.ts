@@ -20,6 +20,7 @@ import { logger } from "@/lib/logger";
 export interface Track {
   id: string;
   file?: File;
+  isEphemeral?: boolean; // Disponible solo en esta sesión (fallback si falla IndexedDB)
   fileName?: string;
   fileType?: string;
   title: string;
@@ -76,6 +77,7 @@ export interface QueueController {
   playTrack: (index: number) => void;
   nextTrack: () => void;
   previousTrack: () => void;
+  persistEphemeralTrack: (trackId: string) => Promise<boolean>;
   // Legacy compatibility
   addTrack: (file: File) => Promise<void>;
   addTracks: (files: File[]) => Promise<void>;
@@ -313,7 +315,23 @@ export function useAudioQueue(): QueueController {
       const id = `track-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       const metadata = await extractMetadata(file);
       
-      // Guardar en IndexedDB
+      const track: Track = {
+        id,
+        file,
+        fileName: file.name,
+        fileType: file.type || 'audio/mpeg',
+        title: metadata.title,
+        artist: metadata.artist,
+        duration: metadata.duration,
+        coverUrl: metadata.coverBase64 || metadata.coverUrl,
+        bitDepth: metadata.bitDepth,
+        sampleRate: metadata.sampleRate,
+        bitrate: metadata.bitrate,
+        isHiRes: metadata.isHiRes,
+        sourceType: 'file',
+      };
+
+      // Guardar en IndexedDB (si falla, usar fallback en memoria para no romper reproducción)
       try {
         const audioBlob = await fileToBlob(file);
         await musicLibraryDB.saveTrack(id, {
@@ -336,24 +354,12 @@ export function useAudioQueue(): QueueController {
         logger.debug(`[Library] Saved track: ${metadata.title}`);
       } catch (error) {
         logger.error(`[Library] Error saving track ${metadata.title}:`, error);
+        track.isEphemeral = true;
+        fileCacheRef.current.set(id, file);
+        newTracks.push(track);
+        setLibrary((prev) => [...prev, track]);
         continue;
       }
-
-      const track: Track = {
-        id,
-        file,
-        fileName: file.name,
-        fileType: file.type || 'audio/mpeg',
-        title: metadata.title,
-        artist: metadata.artist,
-        duration: metadata.duration,
-        coverUrl: metadata.coverBase64 || metadata.coverUrl,
-        bitDepth: metadata.bitDepth,
-        sampleRate: metadata.sampleRate,
-        bitrate: metadata.bitrate,
-        isHiRes: metadata.isHiRes,
-        sourceType: 'file',
-      };
       
       if (metadata.coverBase64 || metadata.coverUrl) {
         coverUrlsRef.current.set(id, metadata.coverBase64 || metadata.coverUrl!);
@@ -845,9 +851,22 @@ export function useAudioQueue(): QueueController {
   // === CONTROLES DE REPRODUCCIÓN ===
 
   const playTrack = useCallback((index: number) => {
-    if (index >= 0 && index < queue.length) {
-      setCurrentTrackIndex(index);
+    if (index < 0 || index >= queue.length) {
+      return;
     }
+
+    setCurrentTrackIndex((prev) => {
+      if (prev !== index) {
+        return index;
+      }
+
+      // Forzar re-carga cuando el usuario intenta reproducir la misma pista
+      // (útil tras errores de reproducción donde el índice no cambia).
+      setTimeout(() => {
+        setCurrentTrackIndex(index);
+      }, 0);
+      return -1;
+    });
   }, [queue.length]);
 
   const nextTrack = useCallback(() => {
@@ -865,6 +884,48 @@ export function useAudioQueue(): QueueController {
       return queue.length - 1;
     });
   }, [queue.length]);
+
+  const persistEphemeralTrack = useCallback(async (trackId: string): Promise<boolean> => {
+    const targetTrack = library.find((track) => track.id === trackId);
+    if (!targetTrack || !targetTrack.isEphemeral) {
+      return false;
+    }
+
+    const file = targetTrack.file ?? fileCacheRef.current.get(trackId);
+    if (!file) {
+      logger.warn(`[Library] Cannot persist ephemeral track ${trackId}: file not available`);
+      return false;
+    }
+
+    const fingerprint = musicLibraryDB.generateFingerprint(file.name, file.size);
+    const audioBlob = await fileToBlob(file);
+
+    await musicLibraryDB.saveTrack(trackId, {
+      title: targetTrack.title,
+      artist: targetTrack.artist,
+      duration: targetTrack.duration,
+      bitDepth: targetTrack.bitDepth,
+      sampleRate: targetTrack.sampleRate,
+      bitrate: targetTrack.bitrate,
+      isHiRes: targetTrack.isHiRes,
+      coverBase64: targetTrack.coverUrl,
+      fileName: targetTrack.fileName || file.name,
+      fileType: targetTrack.fileType || file.type || 'audio/mpeg',
+      fileSize: file.size,
+      addedAt: Date.now(),
+      sourceType: 'file',
+      fingerprint,
+    }, audioBlob);
+
+    setLibrary((prev) =>
+      prev.map((track) =>
+        track.id === trackId ? { ...track, isEphemeral: false, file } : track,
+      ),
+    );
+    fileCacheRef.current.set(trackId, file);
+    logger.info(`[Library] Persisted ephemeral track ${trackId}`);
+    return true;
+  }, [library]);
 
   // === LEGACY COMPATIBILITY ===
   
@@ -917,6 +978,7 @@ export function useAudioQueue(): QueueController {
     playTrack,
     nextTrack,
     previousTrack,
+    persistEphemeralTrack,
     addTrack,
     addTracks,
     addTrackToEnd,

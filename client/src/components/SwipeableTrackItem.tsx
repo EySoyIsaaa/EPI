@@ -9,7 +9,7 @@
  */
 
 import { useState, useRef, useCallback } from 'react';
-import { Disc3, ListPlus, PlayCircle, Play, MoreHorizontal, ListMusic } from 'lucide-react';
+import { Disc3, ListPlus, PlayCircle, Play, MoreHorizontal, ListMusic, Save } from 'lucide-react';
 import { type Track } from '@/hooks/useAudioQueue';
 import { AudioQualityBadge } from '@/components/AudioQualityBadge';
 import { TrackArtwork } from '@/components/TrackArtwork';
@@ -21,6 +21,7 @@ interface SwipeableTrackItemProps {
   onAddToQueue: (track: Track) => void;
   onPlayNext: (track: Track) => void;
   onAddToPlaylist?: (track: Track) => void;
+  onPersistTrack?: (track: Track) => void;
   showArtist?: boolean;
   compact?: boolean;
 }
@@ -31,6 +32,7 @@ export function SwipeableTrackItem({
   onAddToQueue,
   onPlayNext,
   onAddToPlaylist,
+  onPersistTrack,
   showArtist = true,
   compact = false,
 }: SwipeableTrackItemProps) {
@@ -189,6 +191,15 @@ export function SwipeableTrackItem({
                 </button>
               </>
             )}
+            {track.isEphemeral && onPersistTrack && (
+              <button
+                onClick={() => { onPersistTrack(track); closeMenu(); }}
+                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-zinc-800 transition-colors text-left"
+              >
+                <Save className="w-5 h-5 text-zinc-400" />
+                <span>{t('actions.persistTrack')}</span>
+              </button>
+            )}
           </div>
         </>
       )}
@@ -241,6 +252,11 @@ export function SwipeableTrackItem({
             {showArtist && (
               <div className="flex items-center gap-2">
                 <p className="text-sm text-zinc-500 truncate">{track.artist}</p>
+                {track.isEphemeral && (
+                  <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                    {t('actions.sessionOnly')}
+                  </span>
+                )}
                 <AudioQualityBadge 
                   bitDepth={track.bitDepth} 
                   sampleRate={track.sampleRate}
@@ -269,6 +285,17 @@ export function SwipeableTrackItem({
             <MoreHorizontal className="w-5 h-5" />
           </button>
         </div>
+        {track.isEphemeral && onPersistTrack && (
+          <div className="px-3 pb-2">
+            <button
+              onClick={(e) => { e.stopPropagation(); onPersistTrack(track); }}
+              className="w-full text-xs px-3 py-2 rounded-lg border border-amber-500/40 text-amber-200 hover:bg-amber-500/10 transition-colors flex items-center justify-center gap-2"
+            >
+              <Save className="w-3.5 h-3.5" />
+              {t('actions.persistTrack')}
+            </button>
+          </div>
+        )}
       </div>
     </>
   );
