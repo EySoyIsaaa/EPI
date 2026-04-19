@@ -36,6 +36,16 @@ for %%i in ("%APP_HOME%") do set APP_HOME=%%~fi
 @rem Add default JVM options here. You can also use JAVA_OPTS and GRADLE_OPTS to pass JVM options to this script.
 set DEFAULT_JVM_OPTS="-Xmx64m" "-Xms64m"
 
+@rem Prefer a Java LTS runtime compatible with current Gradle/AGP.
+@rem 1) Explicit override from user environment
+if defined JAVA21_HOME set JAVA_HOME=%JAVA21_HOME%
+if defined JAVA17_HOME if not defined JAVA_HOME set JAVA_HOME=%JAVA17_HOME%
+
+@rem 2) Android Studio bundled JBR (common on Windows)
+if not defined JAVA_HOME (
+  if exist "%ProgramFiles%\Android\Android Studio\jbr\bin\java.exe" set JAVA_HOME=%ProgramFiles%\Android\Android Studio\jbr
+)
+
 @rem Find java.exe
 if defined JAVA_HOME goto findJavaFromJavaHome
 

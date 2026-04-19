@@ -113,6 +113,23 @@ esac
 
 CLASSPATH=$APP_HOME/gradle/wrapper/gradle-wrapper.jar
 
+# Prefer a Java LTS runtime compatible with current Gradle/AGP.
+# Priority:
+#   1) JAVA21_HOME / JAVA17_HOME (if exported by user/CI)
+#   2) Android Studio bundled JBR (common local setup)
+if [ -z "$JAVA_HOME" ] && [ -n "$JAVA21_HOME" ] ; then
+    JAVA_HOME="$JAVA21_HOME"
+fi
+if [ -z "$JAVA_HOME" ] && [ -n "$JAVA17_HOME" ] ; then
+    JAVA_HOME="$JAVA17_HOME"
+fi
+if [ -z "$JAVA_HOME" ] && [ -x "/opt/android-studio/jbr/bin/java" ] ; then
+    JAVA_HOME="/opt/android-studio/jbr"
+fi
+if [ -z "$JAVA_HOME" ] && [ -x "/Applications/Android Studio.app/Contents/jbr/Contents/Home/bin/java" ] ; then
+    JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+fi
+
 
 # Determine the Java command to use to start the JVM.
 if [ -n "$JAVA_HOME" ] ; then
