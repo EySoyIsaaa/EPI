@@ -117,16 +117,15 @@ CLASSPATH=$APP_HOME/gradle/wrapper/gradle-wrapper.jar
 # Priority:
 #   1) JAVA21_HOME / JAVA17_HOME (if exported by user/CI)
 #   2) Android Studio bundled JBR (common local setup)
-if [ -z "$JAVA_HOME" ] && [ -n "$JAVA21_HOME" ] ; then
+# These candidates are preferred even if JAVA_HOME points to a newer,
+# incompatible runtime for this Gradle/AGP combination.
+if [ -n "$JAVA21_HOME" ] ; then
     JAVA_HOME="$JAVA21_HOME"
-fi
-if [ -z "$JAVA_HOME" ] && [ -n "$JAVA17_HOME" ] ; then
+elif [ -n "$JAVA17_HOME" ] ; then
     JAVA_HOME="$JAVA17_HOME"
-fi
-if [ -z "$JAVA_HOME" ] && [ -x "/opt/android-studio/jbr/bin/java" ] ; then
+elif [ -x "/opt/android-studio/jbr/bin/java" ] ; then
     JAVA_HOME="/opt/android-studio/jbr"
-fi
-if [ -z "$JAVA_HOME" ] && [ -x "/Applications/Android Studio.app/Contents/jbr/Contents/Home/bin/java" ] ; then
+elif [ -x "/Applications/Android Studio.app/Contents/jbr/Contents/Home/bin/java" ] ; then
     JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
 fi
 
@@ -154,6 +153,15 @@ else
 Please set the JAVA_HOME variable in your environment to match the
 location of your Java installation."
     fi
+fi
+
+# Guard against unsupported very-new JDKs (e.g. 25 => class file major 69)
+JAVA_VERSION_STR=$("$JAVACMD" -version 2>&1 | sed -n '1s/.*version "\(.*\)".*/\1/p')
+JAVA_MAJOR=$(printf '%s' "$JAVA_VERSION_STR" | awk -F. '{ if ($1 == "1") print $2; else print $1 }')
+if [ -n "$JAVA_MAJOR" ] && [ "$JAVA_MAJOR" -gt 23 ] 2>/dev/null ; then
+    die "ERROR: Detected Java $JAVA_VERSION_STR (major $JAVA_MAJOR), which is incompatible with this Android Gradle setup.
+
+Use Java 21 or 17. You can export JAVA21_HOME/JAVA17_HOME or set Gradle JDK in Android Studio."
 fi
 
 # Increase the maximum file descriptors if we can.
