@@ -20,6 +20,7 @@ import { logger } from "@/lib/logger";
 export interface Track {
   id: string;
   file?: File;
+  isEphemeral?: boolean; // Disponible solo en esta sesión (fallback si falla IndexedDB)
   fileName?: string;
   fileType?: string;
   title: string;
@@ -313,7 +314,23 @@ export function useAudioQueue(): QueueController {
       const id = `track-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       const metadata = await extractMetadata(file);
       
-      // Guardar en IndexedDB
+      const track: Track = {
+        id,
+        file,
+        fileName: file.name,
+        fileType: file.type || 'audio/mpeg',
+        title: metadata.title,
+        artist: metadata.artist,
+        duration: metadata.duration,
+        coverUrl: metadata.coverBase64 || metadata.coverUrl,
+        bitDepth: metadata.bitDepth,
+        sampleRate: metadata.sampleRate,
+        bitrate: metadata.bitrate,
+        isHiRes: metadata.isHiRes,
+        sourceType: 'file',
+      };
+
+      // Guardar en IndexedDB (si falla, usar fallback en memoria para no romper reproducción)
       try {
         const audioBlob = await fileToBlob(file);
         await musicLibraryDB.saveTrack(id, {
@@ -336,24 +353,12 @@ export function useAudioQueue(): QueueController {
         logger.debug(`[Library] Saved track: ${metadata.title}`);
       } catch (error) {
         logger.error(`[Library] Error saving track ${metadata.title}:`, error);
+        track.isEphemeral = true;
+        fileCacheRef.current.set(id, file);
+        newTracks.push(track);
+        setLibrary((prev) => [...prev, track]);
         continue;
       }
-
-      const track: Track = {
-        id,
-        file,
-        fileName: file.name,
-        fileType: file.type || 'audio/mpeg',
-        title: metadata.title,
-        artist: metadata.artist,
-        duration: metadata.duration,
-        coverUrl: metadata.coverBase64 || metadata.coverUrl,
-        bitDepth: metadata.bitDepth,
-        sampleRate: metadata.sampleRate,
-        bitrate: metadata.bitrate,
-        isHiRes: metadata.isHiRes,
-        sourceType: 'file',
-      };
       
       if (metadata.coverBase64 || metadata.coverUrl) {
         coverUrlsRef.current.set(id, metadata.coverBase64 || metadata.coverUrl!);
@@ -845,9 +850,22 @@ export function useAudioQueue(): QueueController {
   // === CONTROLES DE REPRODUCCIÓN ===
 
   const playTrack = useCallback((index: number) => {
-    if (index >= 0 && index < queue.length) {
-      setCurrentTrackIndex(index);
+    if (index < 0 || index >= queue.length) {
+      return;
     }
+
+    setCurrentTrackIndex((prev) => {
+      if (prev !== index) {
+        return index;
+      }
+
+      // Forzar re-carga cuando el usuario intenta reproducir la misma pista
+      // (útil tras errores de reproducción donde el índice no cambia).
+      setTimeout(() => {
+        setCurrentTrackIndex(index);
+      }, 0);
+      return -1;
+    });
   }, [queue.length]);
 
   const nextTrack = useCallback(() => {
