@@ -110,7 +110,11 @@
     "save": "Save",
     "autoOptimizedPreset": "Automatic adjustment applied to the song",
     "swipeQueueIndicator": "Add to queue",
-    "swipeNextIndicator": "Play next"
+    "swipeNextIndicator": "Play next",
+    "sessionOnly": "Session only",
+    "persistTrack": "Save to device",
+    "persistTrackSuccess": "Track saved to local storage",
+    "persistTrackFailed": "Could not persist track to local storage"
   },
   "duplicates": {
     "title": "Duplicate Songs",
