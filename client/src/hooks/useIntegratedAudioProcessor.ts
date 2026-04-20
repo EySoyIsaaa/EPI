@@ -96,6 +96,7 @@ export interface IntegratedAudioController {
   getAnalyserNode: () => AnalyserNode | null;
   getCurrentDspParams: () => StreamingParams;
   setOnTrackEnded: (callback: (() => void) | null) => void;
+  setOnTrackError: (callback: ((error: Error) => void) | null) => void;
   setCrossfadeConfig: (config: CrossfadeConfig) => void;
   resetAfterError: () => void;
   eqBands: EqualizerBand[];
@@ -125,6 +126,7 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
   
   // Callback para cuando termina una canción
   const onTrackEndedRef = useRef<(() => void) | null>(null);
+  const onTrackErrorRef = useRef<((error: Error) => void) | null>(null);
   
   // Configuración de crossfade
   const crossfadeConfigRef = useRef<CrossfadeConfig>({
@@ -423,10 +425,23 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
         onTrackEndedRef.current();
       }
     };
+
+    const onError = () => {
+      const mediaError = audioElement.error;
+      const message = mediaError
+        ? `Audio playback error (code ${mediaError.code})`
+        : 'Audio playback error';
+      setIsPlaying(false);
+      setIsReady(false);
+      if (onTrackErrorRef.current) {
+        onTrackErrorRef.current(new Error(message));
+      }
+    };
     
     audioElement.addEventListener('loadedmetadata', onLoadedMetadata);
     audioElement.addEventListener('timeupdate', onTimeUpdate);
     audioElement.addEventListener('ended', onEnded);
+    audioElement.addEventListener('error', onError);
   }, [initAudioChain, epicenterEnabled, startCrossfadeIn, startCrossfadeOut, updateAudioRouting]);
 
   const play = useCallback(() => {
@@ -435,7 +450,12 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
     if (audioContextRef.current.state === 'suspended') {
       audioContextRef.current.resume();
     }
-    void element.play();
+    void element.play().catch((error) => {
+      setIsPlaying(false);
+      if (onTrackErrorRef.current) {
+        onTrackErrorRef.current(error instanceof Error ? error : new Error('Audio playback failed'));
+      }
+    });
     if (pendingCrossfadeInRef.current) {
       startCrossfadeIn();
       pendingCrossfadeInRef.current = false;
@@ -573,6 +593,10 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
     onTrackEndedRef.current = callback;
   }, []);
 
+  const setOnTrackError = useCallback((callback: ((error: Error) => void) | null) => {
+    onTrackErrorRef.current = callback;
+  }, []);
+
   const setCrossfadeConfig = useCallback((config: CrossfadeConfig) => {
     crossfadeConfigRef.current = config;
   }, []);
@@ -628,6 +652,7 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
     getAnalyserNode,
     getCurrentDspParams,
     setOnTrackEnded,
+    setOnTrackError,
     setCrossfadeConfig,
     resetAfterError,
     eqBands,

@@ -1,7 +1,7 @@
 {
   "app": {
     "name": "Epicenter Hi-Fi",
-    "version": "5.0.0"
+    "version": "5.1.0"
   },
   "tabs": {
     "now": "Ahora",
@@ -110,7 +110,11 @@
     "save": "Guardar",
     "autoOptimizedPreset": "Ajuste automático aplicado a la canción",
     "swipeQueueIndicator": "Agregar a cola",
-    "swipeNextIndicator": "Reproducir siguiente"
+    "swipeNextIndicator": "Reproducir siguiente",
+    "sessionOnly": "Solo sesión",
+    "persistTrack": "Guardar en dispositivo",
+    "persistTrackSuccess": "Canción guardada correctamente en almacenamiento local",
+    "persistTrackFailed": "No se pudo guardar la canción de forma persistente"
   },
   "duplicates": {
     "title": "Canciones Duplicadas",
@@ -192,7 +196,7 @@
   },
   "howToUse": {
     "title": "Cómo usar Epicenter Hi-Fi",
-    "intro": "Epicenter Hi-Fi v5.0.0 es un reproductor local con énfasis en Epicenter DSP e implementación de IA para experiencias de audio inteligentes.",
+    "intro": "Epicenter Hi-Fi v5.1.0 es un reproductor local con énfasis en Epicenter DSP e implementación de IA para experiencias de audio inteligentes.",
     "libraryTitle": "1. Importa tu música",
     "libraryBody": "Usa la pantalla principal de la biblioteca para importar archivos manualmente o escanear tu dispositivo en Android.",
     "playerTitle": "2. Inicia la reproducción",
