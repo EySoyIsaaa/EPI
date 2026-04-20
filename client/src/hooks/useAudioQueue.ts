@@ -19,6 +19,7 @@ import { logger } from "@/lib/logger";
 
 export interface Track {
   id: string;
+  sourceTrackId?: string; // ID real en biblioteca cuando la cola usa IDs temporales
   file?: File;
   isEphemeral?: boolean; // Disponible solo en esta sesión (fallback si falla IndexedDB)
   fileName?: string;
@@ -185,26 +186,28 @@ export function useAudioQueue(): QueueController {
       return undefined;
     }
 
+    const lookupId = track.sourceTrackId || track.id;
+
     if (track.file) {
       return track.file;
     }
 
-    const cached = fileCacheRef.current.get(track.id);
+    const cached = fileCacheRef.current.get(lookupId);
     if (cached) {
       return cached;
     }
 
-    const audioBlob = await musicLibraryDB.getAudioBlob(track.id);
+    const audioBlob = await musicLibraryDB.getAudioBlob(lookupId);
     if (!audioBlob) {
-      logger.warn(`[Library] Audio blob not found for ${track.id}`);
+      logger.warn(`[Library] Audio blob not found for ${lookupId}`);
       return undefined;
     }
 
     const fileName = track.fileName || track.title;
     const fileType = track.fileType || 'audio/mpeg';
     const file = blobToFile(audioBlob, fileName, fileType);
-    fileCacheRef.current.set(track.id, file);
-    setLibrary((prev) => prev.map((item) => (item.id === track.id ? { ...item, file } : item)));
+    fileCacheRef.current.set(lookupId, file);
+    setLibrary((prev) => prev.map((item) => (item.id === lookupId ? { ...item, file } : item)));
     return file;
   }, []);
 
@@ -686,7 +689,9 @@ export function useAudioQueue(): QueueController {
     setLibrary((prev) => prev.filter(t => t.id !== id));
     
     // También remover de la cola si está ahí
-    setQueue((prev) => prev.filter(t => !t.id.includes(id)));
+    setQueue((prev) =>
+      prev.filter((t) => (t.sourceTrackId || t.id) !== id),
+    );
   }, []);
 
   const clearLibrary = useCallback(async () => {
@@ -712,41 +717,38 @@ export function useAudioQueue(): QueueController {
 
   // === FUNCIONES DE COLA (EN MEMORIA) ===
 
-  const addToQueue = useCallback((track: Track) => {
-    const queueTrack = {
+  const createQueueTrack = useCallback((track: Track): Track => {
+    const sourceTrackId = track.sourceTrackId || track.id;
+    return {
       ...track,
       id: `queue-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      sourceTrackId,
     };
-    setQueue((prev) => [...prev, queueTrack]);
   }, []);
 
+  const addToQueue = useCallback((track: Track) => {
+    const queueTrack = createQueueTrack(track);
+    setQueue((prev) => [...prev, queueTrack]);
+  }, [createQueueTrack]);
+
   const addToQueueNext = useCallback((track: Track) => {
-    const queueTrack = {
-      ...track,
-      id: `queue-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-    };
+    const queueTrack = createQueueTrack(track);
     setQueue((prev) => {
       const newQueue = [...prev];
       const insertIndex = currentTrackIndex >= 0 ? currentTrackIndex + 1 : 0;
       newQueue.splice(insertIndex, 0, queueTrack);
       return newQueue;
     });
-  }, [currentTrackIndex]);
+  }, [createQueueTrack, currentTrackIndex]);
 
   // Add multiple tracks to queue at once
   const addMultipleToQueue = useCallback((tracks: Track[]) => {
-    const queueTracks = tracks.map(track => ({
-      ...track,
-      id: `queue-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-    }));
+    const queueTracks = tracks.map((track) => createQueueTrack(track));
     setQueue((prev) => [...prev, ...queueTracks]);
-  }, []);
+  }, [createQueueTrack]);
 
   const playNow = useCallback((track: Track) => {
-    const queueTrack = {
-      ...track,
-      id: `queue-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-    };
+    const queueTrack = createQueueTrack(track);
     setQueue((prev) => {
       const newQueue = [...prev];
       const insertIndex = currentTrackIndex >= 0 ? currentTrackIndex + 1 : 0;
@@ -754,7 +756,7 @@ export function useAudioQueue(): QueueController {
       return newQueue;
     });
     setCurrentTrackIndex((prev) => prev >= 0 ? prev + 1 : 0);
-  }, [currentTrackIndex]);
+  }, [createQueueTrack, currentTrackIndex]);
 
   const removeFromQueue = useCallback((id: string) => {
     setQueue((prev) => {
@@ -785,14 +787,11 @@ export function useAudioQueue(): QueueController {
   const playAllInOrder = useCallback((tracks: Track[]) => {
     if (tracks.length === 0) return;
 
-    const queueTracks = tracks.map((track) => ({
-      ...track,
-      id: `queue-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-    }));
+    const queueTracks = tracks.map((track) => createQueueTrack(track));
 
     setQueue(queueTracks);
     setCurrentTrackIndex(0);
-  }, []);
+  }, [createQueueTrack]);
 
   // Reproducir toda la biblioteca en orden aleatorio (limpia cola actual)
   const shuffleAll = useCallback((tracks: Track[]) => {
@@ -820,15 +819,12 @@ export function useAudioQueue(): QueueController {
     lastShuffleSignatureRef.current = signature;
     
     // Crear nuevos IDs para la cola
-    const queueTracks = shuffled.map(track => ({
-      ...track,
-      id: `queue-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-    }));
+    const queueTracks = shuffled.map((track) => createQueueTrack(track));
     
     // Reemplazar cola completamente y empezar desde el principio
     setQueue(queueTracks);
     setCurrentTrackIndex(0);
-  }, []);
+  }, [createQueueTrack]);
 
   const reorderQueue = useCallback((fromIndex: number, toIndex: number) => {
     setQueue((prev) => {
