@@ -395,6 +395,7 @@ export function useAudioQueue(): QueueController {
     const newTracks: Track[] = [];
     const duplicates: string[] = [];
     const total = tracks.length;
+    const albumArtCache = new Map<string, string | null>();
 
     setImportProgress({
       isImporting: true,
@@ -402,6 +403,19 @@ export function useAudioQueue(): QueueController {
       total,
       currentFileName: tracks[0]?.name || '',
     });
+
+    // Carga única para deduplicación (evita una consulta IndexedDB por track)
+    const existingFingerprints = new Set<string>();
+    try {
+      const existingTracks = await musicLibraryDB.getAllTrackMetadata();
+      for (const track of existingTracks) {
+        if (track.fingerprint) {
+          existingFingerprints.add(track.fingerprint);
+        }
+      }
+    } catch (error) {
+      logger.warn('[Library] Could not preload fingerprints for bulk import:', error);
+    }
 
     for (let i = 0; i < tracks.length; i++) {
       const trackInfo = tracks[i];
@@ -421,14 +435,9 @@ export function useAudioQueue(): QueueController {
         mediaStoreId: trackInfo.id,
       });
 
-      try {
-        const existingTrack = await musicLibraryDB.findTrackByFingerprint(fingerprint);
-        if (existingTrack) {
-          duplicates.push(trackInfo.name);
-          continue;
-        }
-      } catch (error) {
-        logger.warn('[Library] Could not check for duplicates:', error);
+      if (existingFingerprints.has(fingerprint)) {
+        duplicates.push(trackInfo.name);
+        continue;
       }
 
       const id = `media-${trackInfo.id}`;
@@ -442,7 +451,13 @@ export function useAudioQueue(): QueueController {
       let coverBase64: string | undefined;
       if (getAlbumArtFn && trackInfo.albumArtUri) {
         try {
-          const artDataUrl = await getAlbumArtFn(trackInfo.albumArtUri);
+          let artDataUrl: string | null;
+          if (albumArtCache.has(trackInfo.albumArtUri)) {
+            artDataUrl = albumArtCache.get(trackInfo.albumArtUri) ?? null;
+          } else {
+            artDataUrl = await getAlbumArtFn(trackInfo.albumArtUri);
+            albumArtCache.set(trackInfo.albumArtUri, artDataUrl);
+          }
           if (artDataUrl) {
             coverBase64 = artDataUrl;
           }
@@ -477,6 +492,7 @@ export function useAudioQueue(): QueueController {
 
       try {
         await musicLibraryDB.saveTrackReference(id, metadata);
+        existingFingerprints.add(fingerprint);
         logger.info(`[Library] Saved MediaStore track: ${metadata.title} (Hi-Res: ${isHiRes})`);
       } catch (error) {
         logger.error(`[Library] Error saving MediaStore track ${metadata.title}:`, error);
@@ -506,7 +522,10 @@ export function useAudioQueue(): QueueController {
       };
 
       newTracks.push(newTrack);
-      setLibrary((prev) => [...prev, newTrack]);
+    }
+
+    if (newTracks.length > 0) {
+      setLibrary((prev) => [...prev, ...newTracks]);
     }
 
     setImportProgress({
