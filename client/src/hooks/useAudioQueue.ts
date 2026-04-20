@@ -396,6 +396,7 @@ export function useAudioQueue(): QueueController {
     const duplicates: string[] = [];
     const total = tracks.length;
     const albumArtCache = new Map<string, string | null>();
+    const shouldFetchAlbumArt = !!getAlbumArtFn && total <= 500;
 
     setImportProgress({
       isImporting: true,
@@ -420,12 +421,14 @@ export function useAudioQueue(): QueueController {
     for (let i = 0; i < tracks.length; i++) {
       const trackInfo = tracks[i];
 
-      setImportProgress({
-        isImporting: true,
-        current: i + 1,
-        total,
-        currentFileName: trackInfo.name,
-      });
+      if (i === 0 || i === tracks.length - 1 || i % 25 === 0) {
+        setImportProgress({
+          isImporting: true,
+          current: i + 1,
+          total,
+          currentFileName: trackInfo.name,
+        });
+      }
 
       const fingerprint = musicLibraryDB.generateFingerprint(trackInfo.name, trackInfo.size || 0, {
         duration: trackInfo.duration || 0,
@@ -449,7 +452,7 @@ export function useAudioQueue(): QueueController {
 
       // Obtener carátula del álbum si está disponible
       let coverBase64: string | undefined;
-      if (getAlbumArtFn && trackInfo.albumArtUri) {
+      if (shouldFetchAlbumArt && trackInfo.albumArtUri && getAlbumArtFn) {
         try {
           let artDataUrl: string | null;
           if (albumArtCache.has(trackInfo.albumArtUri)) {
@@ -736,11 +739,11 @@ export function useAudioQueue(): QueueController {
 
   // === FUNCIONES DE COLA (EN MEMORIA) ===
 
-  const createQueueTrack = useCallback((track: Track): Track => {
+  const createQueueTrack = useCallback((track: Track, preserveId: boolean = false): Track => {
     const sourceTrackId = track.sourceTrackId || track.id;
     return {
       ...track,
-      id: `queue-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      id: preserveId ? sourceTrackId : `queue-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       sourceTrackId,
     };
   }, []);
@@ -806,7 +809,9 @@ export function useAudioQueue(): QueueController {
   const playAllInOrder = useCallback((tracks: Track[]) => {
     if (tracks.length === 0) return;
 
-    const queueTracks = tracks.map((track) => createQueueTrack(track));
+    // Para bibliotecas grandes mantenemos IDs estables y evitamos desincronización
+    // entre cola y resolución de origen al cambiar rápido de pista.
+    const queueTracks = tracks.map((track) => createQueueTrack(track, true));
 
     setQueue(queueTracks);
     setCurrentTrackIndex(0);
@@ -838,7 +843,7 @@ export function useAudioQueue(): QueueController {
     lastShuffleSignatureRef.current = signature;
     
     // Crear nuevos IDs para la cola
-    const queueTracks = shuffled.map((track) => createQueueTrack(track));
+    const queueTracks = shuffled.map((track) => createQueueTrack(track, true));
     
     // Reemplazar cola completamente y empezar desde el principio
     setQueue(queueTracks);

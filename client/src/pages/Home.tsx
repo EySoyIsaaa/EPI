@@ -398,15 +398,19 @@ export default function Home() {
           throw new Error("Track source not available");
         }
 
-        const stableLibraryTrack = queue.library.find(
-          (libraryTrack) =>
-            libraryTrack.sourceType === "media-store" &&
-            libraryTrack.sourceUri === track.sourceUri,
-        );
+        const stableLibraryTrack =
+          (track.sourceTrackId
+            ? queue.library.find((libraryTrack) => libraryTrack.id === track.sourceTrackId)
+            : null) ??
+          queue.library.find(
+            (libraryTrack) =>
+              libraryTrack.sourceType === "media-store" &&
+              libraryTrack.sourceUri === track.sourceUri,
+          );
 
         const fileUrl = await androidMusicLibrary.getAudioFileUrl(
           track.sourceUri,
-          stableLibraryTrack?.id ?? track.id,
+          stableLibraryTrack?.id ?? track.sourceTrackId ?? track.id,
           {
             expectedSize: stableLibraryTrack?.file?.size,
             sourceVersionKey: stableLibraryTrack?.sourceVersionKey,
