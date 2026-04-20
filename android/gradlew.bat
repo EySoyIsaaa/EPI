@@ -36,6 +36,16 @@ for %%i in ("%APP_HOME%") do set APP_HOME=%%~fi
 @rem Add default JVM options here. You can also use JAVA_OPTS and GRADLE_OPTS to pass JVM options to this script.
 set DEFAULT_JVM_OPTS="-Xmx64m" "-Xms64m"
 
+@rem Prefer a Java LTS runtime compatible with current Gradle/AGP.
+@rem 1) Explicit override from user environment (always preferred over JAVA_HOME)
+if defined JAVA21_HOME set JAVA_HOME=%JAVA21_HOME%
+if not defined JAVA21_HOME if defined JAVA17_HOME set JAVA_HOME=%JAVA17_HOME%
+
+@rem 2) Android Studio bundled JBR (common on Windows, usually JDK 21)
+if not defined JAVA21_HOME if not defined JAVA17_HOME (
+  if exist "%ProgramFiles%\Android\Android Studio\jbr\bin\java.exe" set JAVA_HOME=%ProgramFiles%\Android\Android Studio\jbr
+)
+
 @rem Find java.exe
 if defined JAVA_HOME goto findJavaFromJavaHome
 
@@ -66,6 +76,15 @@ echo location of your Java installation.
 goto fail
 
 :execute
+for /f "tokens=3 delims=\" %%v in ('"%JAVA_EXE%" -version 2^>^&1 ^| findstr /i "version"') do set JAVA_VERSION=%%v
+for /f "tokens=1 delims=." %%m in ("%JAVA_VERSION%") do set JAVA_MAJOR=%%m
+if defined JAVA_MAJOR if %JAVA_MAJOR% GTR 23 (
+  echo.
+  echo ERROR: Detected Java %JAVA_VERSION% (major %JAVA_MAJOR%), incompatible with this Android Gradle setup.
+  echo Use Java 21 or 17. Set JAVA21_HOME/JAVA17_HOME or select a compatible Gradle JDK in Android Studio.
+  goto fail
+)
+
 @rem Setup the command line
 
 set CLASSPATH=%APP_HOME%\gradle\wrapper\gradle-wrapper.jar
