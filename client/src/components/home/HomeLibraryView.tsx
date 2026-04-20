@@ -58,6 +58,7 @@ interface HomeLibraryViewProps
     tracks: AndroidMusicFile[],
   ) => Promise<ImportResult>;
   onOpenAddToPlaylist: (track: Track) => void;
+  onPersistEphemeralTrack: (track: Track) => void;
   onOpenAddSongsToPlaylist: () => void;
   onOpenDeletePlaylist: (playlist: Playlist) => void;
   onOpenRenamePlaylist: (playlist: Playlist) => void;
@@ -94,6 +95,7 @@ export function HomeLibraryView({
   onPlayInOrder,
   onShufflePlay,
   onOpenAddToPlaylist,
+  onPersistEphemeralTrack,
   onOpenAddSongsToPlaylist,
   onOpenDeletePlaylist,
   onOpenRenamePlaylist,
@@ -527,6 +529,7 @@ export function HomeLibraryView({
                 onAddToQueue={onAddToQueue}
                 onPlayNext={onPlayNext}
                 onAddToPlaylist={onOpenAddToPlaylist}
+                onPersistTrack={onPersistEphemeralTrack}
               />
             ))}
             {visibleSongsCount < sortedSongs.length && (
@@ -585,6 +588,7 @@ export function HomeLibraryView({
                 onAddToQueue={onAddToQueue}
                 onPlayNext={onPlayNext}
                 onAddToPlaylist={onOpenAddToPlaylist}
+                onPersistTrack={onPersistEphemeralTrack}
               />
             ))}
           </div>
@@ -632,6 +636,7 @@ export function HomeLibraryView({
                       onAddToQueue={onAddToQueue}
                       onPlayNext={onPlayNext}
                       onAddToPlaylist={onOpenAddToPlaylist}
+                      onPersistTrack={onPersistEphemeralTrack}
                       showArtist={false}
                       compact
                     />
