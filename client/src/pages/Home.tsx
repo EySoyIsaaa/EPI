@@ -284,22 +284,6 @@ export default function Home() {
     });
   }, [crossfade.enabled, crossfade.duration, audioProcessor]);
 
-  // Configurar callback para cuando termina una canción
-  useEffect(() => {
-    audioProcessor.setOnTrackEnded(() => {
-      if (
-        queue.queue.length > 0 &&
-        queue.currentTrackIndex < queue.queue.length - 1
-      ) {
-        queue.nextTrack();
-      }
-    });
-
-    return () => {
-      audioProcessor.setOnTrackEnded(null);
-    };
-  }, [audioProcessor, queue]);
-
   // Configurar handlers de Media Session y Notificaciones Nativas
   useEffect(() => {
     mediaSession.setHandlers({
@@ -473,6 +457,57 @@ export default function Home() {
     },
     [queue.currentTrackIndex, queue.playTrack, queue.queue],
   );
+
+  // Configurar callbacks cuando termina o falla una canción.
+  useEffect(() => {
+    audioProcessor.setOnTrackEnded(() => {
+      if (
+        queue.queue.length > 0 &&
+        queue.currentTrackIndex < queue.queue.length - 1
+      ) {
+        queue.nextTrack();
+      }
+    });
+
+    audioProcessor.setOnTrackError((error) => {
+      const failedTrackId = queue.currentTrack?.id;
+      if (!failedTrackId) {
+        return;
+      }
+
+      failedQueueTrackIdsRef.current.add(failedTrackId);
+      clearPendingPlaybackTimers();
+      audioProcessor.resetAfterError();
+      currentTrackRef.current = null;
+      console.error("Playback runtime error:", error);
+
+      const movedToNextTrack = playNextAvailableTrackAfterFailure(failedTrackId);
+      if (movedToNextTrack) {
+        toast.error(t("actions.errorLoadingTrackSkipped"));
+      } else {
+        // Evitar "bloqueo" permanente por lista de fallos acumulada.
+        failedQueueTrackIdsRef.current.clear();
+        toast.error(t("actions.errorLoadingTrackNoFallback"));
+      }
+    });
+
+    return () => {
+      audioProcessor.setOnTrackEnded(null);
+      audioProcessor.setOnTrackError(null);
+    };
+  }, [
+    audioProcessor,
+    clearPendingPlaybackTimers,
+    playNextAvailableTrackAfterFailure,
+    queue,
+    t,
+  ]);
+
+  useEffect(() => {
+    if (audioProcessor.isPlaying && queue.currentTrack?.id) {
+      failedQueueTrackIdsRef.current.delete(queue.currentTrack.id);
+    }
+  }, [audioProcessor.isPlaying, queue.currentTrack?.id]);
 
   useEffect(() => {
     return () => {
@@ -654,6 +689,7 @@ export default function Home() {
           if (movedToNextTrack) {
             toast.error(t("actions.errorLoadingTrackSkipped"));
           } else {
+            failedQueueTrackIdsRef.current.clear();
             toast.error(t("actions.errorLoadingTrackNoFallback"));
           }
         }
@@ -879,6 +915,23 @@ export default function Home() {
     setActiveTab("player");
     setShowQueue(false);
   };
+
+  const handlePersistEphemeralTrack = useCallback(
+    async (track: Track) => {
+      try {
+        const persisted = await queue.persistEphemeralTrack(track.id);
+        if (persisted) {
+          toast.success(t("actions.persistTrackSuccess"));
+        } else {
+          toast.error(t("actions.persistTrackFailed"));
+        }
+      } catch (error) {
+        console.error("Error persisting track:", error);
+        toast.error(t("actions.persistTrackFailed"));
+      }
+    },
+    [queue, t],
+  );
 
   const handleShufflePlay = (tracks: Track[]) => {
     if (tracks.length === 0) {
@@ -1357,6 +1410,7 @@ export default function Home() {
           onPlayInOrder={handlePlayInOrder}
           onShufflePlay={handleShufflePlay}
           onOpenAddToPlaylist={handleOpenAddToPlaylist}
+          onPersistEphemeralTrack={handlePersistEphemeralTrack}
           onOpenAddSongsToPlaylist={() => setShowAddSongsToPlaylist(true)}
           onOpenDeletePlaylist={(playlist) => {
             setSelectedPlaylist(playlist);

@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.epicenter.hifi',
-  appName: 'EpicenterDSP PLAYER',
+  appName: 'EpicenterDSP Player',
   webDir: 'dist/public',
   server: {
     androidScheme: 'https',
