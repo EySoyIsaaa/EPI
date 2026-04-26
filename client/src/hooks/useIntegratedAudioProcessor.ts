@@ -9,6 +9,7 @@
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { Capacitor, type PluginListenerHandle } from '@capacitor/core';
 
 export interface StreamingParams {
   sweepFreq: number;
@@ -39,6 +40,17 @@ const clampStreamingParams = (params: StreamingParams): StreamingParams => ({
   balance: clampStreamingParam('balance', params.balance),
   volume: clampStreamingParam('volume', params.volume),
 });
+
+const toNativePlayableSource = (source: string): string => {
+  if (
+    source.startsWith('https://localhost/_capacitor_file_/') ||
+    source.startsWith('http://localhost/_capacitor_file_/')
+  ) {
+    const normalized = source.replace(/^https?:\/\/localhost\/_capacitor_file_/, '');
+    return decodeURIComponent(normalized);
+  }
+  return source;
+};
 
 export interface EqualizerBand {
   frequency: number;
@@ -105,6 +117,12 @@ export interface IntegratedAudioController {
 }
 
 export function useIntegratedAudioProcessor(): IntegratedAudioController {
+  const isNativeAndroid = Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android';
+  const nativePluginRef = useRef<any>(null);
+  const nativeListenersRef = useRef<PluginListenerHandle[]>([]);
+  const nativeInitializedRef = useRef(false);
+  const activeBackendRef = useRef<'native' | 'web'>('web');
+
   const audioElementRef = useRef<HTMLAudioElement | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const workletNodeRef = useRef<AudioWorkletNode | null>(null);
@@ -152,6 +170,10 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
   }, [eqBands]);
 
   useEffect(() => {
+    if (isNativeAndroid) {
+      nativePluginRef.current = (window as any)?.Capacitor?.Plugins?.NativeAudioPlayer ?? null;
+    }
+
     return () => {
       if (crossfadeTimeoutRef.current) {
         clearTimeout(crossfadeTimeoutRef.current);
@@ -166,10 +188,54 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
       if (audioContextRef.current) {
         audioContextRef.current.close();
       }
-    };
-  }, []);
 
-  const initAudioChain = useCallback(async () => {
+      nativeListenersRef.current.forEach((listener) => {
+        void listener.remove();
+      });
+      nativeListenersRef.current = [];
+
+      if (nativePluginRef.current) {
+        void nativePluginRef.current.reset?.();
+      }
+    };
+  }, [isNativeAndroid]);
+
+  const initAudioChain = useCallback(async (forceWeb = false) => {
+    if (isNativeAndroid && !forceWeb) {
+      if (!nativePluginRef.current) {
+        throw new Error('NativeAudioPlayer plugin no disponible');
+      }
+
+      if (!nativeInitializedRef.current) {
+        await nativePluginRef.current.initialize();
+        nativeInitializedRef.current = true;
+
+        const playbackHandle = await nativePluginRef.current.addListener('playbackStateChanged', (state: any) => {
+          setIsReady(Boolean(state?.isReady));
+          setIsPlaying(Boolean(state?.isPlaying));
+          setCurrentTime(Number(state?.currentTime ?? 0));
+          setDuration(Number(state?.duration ?? 0));
+
+          if (state?.playbackState === 'ended' && onTrackEndedRef.current) {
+            onTrackEndedRef.current();
+          }
+        });
+
+        const errorHandle = await nativePluginRef.current.addListener('playbackError', (error: any) => {
+          const message = typeof error?.message === 'string' ? error.message : 'Native playback error';
+          setIsPlaying(false);
+          if (onTrackErrorRef.current) {
+            onTrackErrorRef.current(new Error(message));
+          }
+        });
+
+        nativeListenersRef.current.push(playbackHandle, errorHandle);
+      }
+
+      setIsReady(true);
+      return;
+    }
+
     if (!audioContextRef.current) {
       audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
     }
@@ -241,7 +307,7 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
       eqOutputGainRef.current.connect(masterGainRef.current);
       masterGainRef.current.connect(ctx.destination);
     }
-  }, []);
+  }, [isNativeAndroid]);
 
   // Función para reconectar la cadena según el estado de los efectos
   const updateAudioRouting = useCallback(() => {
@@ -324,8 +390,39 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
     }
     isCrossfadingRef.current = false;
     
-    await initAudioChain();
+    const canUseNativePlayback =
+      isNativeAndroid &&
+      typeof file === 'string' &&
+      !file.startsWith('blob:');
+
+    await initAudioChain(!canUseNativePlayback);
+
+    if (canUseNativePlayback) {
+      if (!nativePluginRef.current) {
+        throw new Error('NativeAudioPlayer plugin no disponible');
+      }
+
+      const nativeSource = toNativePlayableSource(file);
+
+      await nativePluginRef.current.loadTrack({
+        source: nativeSource,
+        trackId: nativeSource,
+      });
+
+      const state = await nativePluginRef.current.getState();
+      setIsReady(Boolean(state?.isReady));
+      setIsPlaying(Boolean(state?.isPlaying));
+      setCurrentTime(Number(state?.currentTime ?? 0));
+      setDuration(Number(state?.duration ?? 0));
+
+      const clampedParams = clampStreamingParams(params);
+      dspParamsRef.current = { ...clampedParams };
+      activeBackendRef.current = 'native';
+      return;
+    }
+
     const ctx = audioContextRef.current!;
+    activeBackendRef.current = 'web';
     
     if (audioElementRef.current) {
       audioElementRef.current.pause();
@@ -442,9 +539,23 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
     audioElement.addEventListener('timeupdate', onTimeUpdate);
     audioElement.addEventListener('ended', onEnded);
     audioElement.addEventListener('error', onError);
-  }, [initAudioChain, epicenterEnabled, startCrossfadeIn, startCrossfadeOut, updateAudioRouting]);
+  }, [initAudioChain, isNativeAndroid, epicenterEnabled, startCrossfadeIn, startCrossfadeOut, updateAudioRouting]);
 
   const play = useCallback(() => {
+    if (activeBackendRef.current === 'native') {
+      if (!nativePluginRef.current) return;
+      void nativePluginRef.current.play().then((state: any) => {
+        setIsPlaying(Boolean(state?.isPlaying));
+        setIsReady(Boolean(state?.isReady));
+      }).catch((error: unknown) => {
+        setIsPlaying(false);
+        if (onTrackErrorRef.current) {
+          onTrackErrorRef.current(error instanceof Error ? error : new Error('Native audio playback failed'));
+        }
+      });
+      return;
+    }
+
     if (!audioElementRef.current || !audioContextRef.current) return;
     const element = audioElementRef.current;
     if (audioContextRef.current.state === 'suspended') {
@@ -464,12 +575,26 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
   }, [startCrossfadeIn]);
 
   const pause = useCallback(() => {
+    if (activeBackendRef.current === 'native') {
+      if (!nativePluginRef.current) return;
+      void nativePluginRef.current.pause();
+      setIsPlaying(false);
+      return;
+    }
+
     if (!audioElementRef.current) return;
     audioElementRef.current.pause();
     setIsPlaying(false);
   }, []);
 
   const seek = useCallback((time: number) => {
+    if (activeBackendRef.current === 'native') {
+      if (!nativePluginRef.current) return;
+      void nativePluginRef.current.seekTo({ positionSeconds: time });
+      setCurrentTime(time);
+      return;
+    }
+
     if (!audioElementRef.current) return;
     
     // Si estamos en crossfade y el usuario hace seek, cancelar el crossfade
@@ -492,6 +617,12 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
   }, []);
 
   const setDspParam = useCallback((name: keyof StreamingParams, value: number) => {
+    if (isNativeAndroid) {
+      const clampedValue = clampStreamingParam(name, value);
+      dspParamsRef.current = { ...dspParamsRef.current, [name]: clampedValue };
+      return;
+    }
+
     const node = workletNodeRef.current;
     const ctx = audioContextRef.current;
     if (!node || !ctx) return;
@@ -506,7 +637,7 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
     
     // Usar linearRampToValueAtTime para cambios suaves sin reinicio
     param.linearRampToValueAtTime(clampedValue, ctx.currentTime + 0.05);
-  }, []);
+  }, [isNativeAndroid]);
 
 
   const applyEqOutputGain = useCallback((bandsSnapshot: EqualizerBand[]) => {
@@ -539,13 +670,21 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
       return newBands;
     });
 
+    if (isNativeAndroid) {
+      return;
+    }
+
     if (eqFiltersRef.current[index]) {
       eqFiltersRef.current[index].gain.value = eqEnabled ? clampedGain : 0;
     }
-  }, [applyEqOutputGain, eqEnabled]);
+  }, [applyEqOutputGain, eqEnabled, isNativeAndroid]);
 
   const setEqEnabled = useCallback((enabled: boolean) => {
     setEqEnabledState(enabled);
+
+    if (isNativeAndroid) {
+      return;
+    }
 
     const snapshot = eqBandsRef.current;
     eqFiltersRef.current.forEach((filter, index) => {
@@ -568,10 +707,14 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
         });
       }
     }, 0);
-  }, [applyEqOutputGain, updateAudioRouting]);
+  }, [applyEqOutputGain, updateAudioRouting, isNativeAndroid]);
 
   const setEpicenterEnabled = useCallback((enabled: boolean) => {
     setEpicenterEnabledState(enabled);
+
+    if (isNativeAndroid) {
+      return;
+    }
     
     const ctx = audioContextRef.current;
     const node = workletNodeRef.current;
@@ -587,7 +730,7 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
     
     // Actualizar el enrutamiento de audio
     setTimeout(() => updateAudioRouting(), 0);
-  }, [updateAudioRouting]);
+  }, [updateAudioRouting, isNativeAndroid]);
 
   const setOnTrackEnded = useCallback((callback: (() => void) | null) => {
     onTrackEndedRef.current = callback;
@@ -602,6 +745,18 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
   }, []);
 
   const resetAfterError = useCallback(() => {
+    if (activeBackendRef.current === 'native') {
+      if (nativePluginRef.current) {
+        void nativePluginRef.current.reset();
+      }
+      setIsReady(false);
+      setIsPlaying(false);
+      setCurrentTime(0);
+      setDuration(0);
+      activeBackendRef.current = 'web';
+      return;
+    }
+
     if (crossfadeTimeoutRef.current) {
       clearTimeout(crossfadeTimeoutRef.current);
       crossfadeTimeoutRef.current = null;
