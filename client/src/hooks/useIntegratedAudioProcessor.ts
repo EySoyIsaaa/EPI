@@ -41,6 +41,17 @@ const clampStreamingParams = (params: StreamingParams): StreamingParams => ({
   volume: clampStreamingParam('volume', params.volume),
 });
 
+const toNativePlayableSource = (source: string): string => {
+  if (
+    source.startsWith('https://localhost/_capacitor_file_/') ||
+    source.startsWith('http://localhost/_capacitor_file_/')
+  ) {
+    const normalized = source.replace(/^https?:\/\/localhost\/_capacitor_file_/, '');
+    return decodeURIComponent(normalized);
+  }
+  return source;
+};
+
 export interface EqualizerBand {
   frequency: number;
   gain: number;
@@ -110,6 +121,7 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
   const nativePluginRef = useRef<any>(null);
   const nativeListenersRef = useRef<PluginListenerHandle[]>([]);
   const nativeInitializedRef = useRef(false);
+  const activeBackendRef = useRef<'native' | 'web'>('web');
 
   const audioElementRef = useRef<HTMLAudioElement | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -188,8 +200,8 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
     };
   }, [isNativeAndroid]);
 
-  const initAudioChain = useCallback(async () => {
-    if (isNativeAndroid) {
+  const initAudioChain = useCallback(async (forceWeb = false) => {
+    if (isNativeAndroid && !forceWeb) {
       if (!nativePluginRef.current) {
         throw new Error('NativeAudioPlayer plugin no disponible');
       }
@@ -378,20 +390,23 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
     }
     isCrossfadingRef.current = false;
     
-    await initAudioChain();
+    const canUseNativePlayback =
+      isNativeAndroid &&
+      typeof file === 'string' &&
+      !file.startsWith('blob:');
 
-    if (isNativeAndroid) {
+    await initAudioChain(!canUseNativePlayback);
+
+    if (canUseNativePlayback) {
       if (!nativePluginRef.current) {
         throw new Error('NativeAudioPlayer plugin no disponible');
       }
 
-      if (typeof file !== 'string') {
-        throw new Error('En Android nativo solo se soportan rutas/URIs de audio');
-      }
+      const nativeSource = toNativePlayableSource(file);
 
       await nativePluginRef.current.loadTrack({
-        source: file,
-        trackId: file,
+        source: nativeSource,
+        trackId: nativeSource,
       });
 
       const state = await nativePluginRef.current.getState();
@@ -402,10 +417,12 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
 
       const clampedParams = clampStreamingParams(params);
       dspParamsRef.current = { ...clampedParams };
+      activeBackendRef.current = 'native';
       return;
     }
 
     const ctx = audioContextRef.current!;
+    activeBackendRef.current = 'web';
     
     if (audioElementRef.current) {
       audioElementRef.current.pause();
@@ -525,7 +542,7 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
   }, [initAudioChain, isNativeAndroid, epicenterEnabled, startCrossfadeIn, startCrossfadeOut, updateAudioRouting]);
 
   const play = useCallback(() => {
-    if (isNativeAndroid) {
+    if (activeBackendRef.current === 'native') {
       if (!nativePluginRef.current) return;
       void nativePluginRef.current.play().then((state: any) => {
         setIsPlaying(Boolean(state?.isPlaying));
@@ -558,7 +575,7 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
   }, [isNativeAndroid, startCrossfadeIn]);
 
   const pause = useCallback(() => {
-    if (isNativeAndroid) {
+    if (activeBackendRef.current === 'native') {
       if (!nativePluginRef.current) return;
       void nativePluginRef.current.pause();
       setIsPlaying(false);
@@ -571,7 +588,7 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
   }, [isNativeAndroid]);
 
   const seek = useCallback((time: number) => {
-    if (isNativeAndroid) {
+    if (activeBackendRef.current === 'native') {
       if (!nativePluginRef.current) return;
       void nativePluginRef.current.seekTo({ positionSeconds: time });
       setCurrentTime(time);
@@ -728,7 +745,7 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
   }, []);
 
   const resetAfterError = useCallback(() => {
-    if (isNativeAndroid) {
+    if (activeBackendRef.current === 'native') {
       if (nativePluginRef.current) {
         void nativePluginRef.current.reset();
       }
@@ -736,6 +753,7 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
       setIsPlaying(false);
       setCurrentTime(0);
       setDuration(0);
+      activeBackendRef.current = 'web';
       return;
     }
 

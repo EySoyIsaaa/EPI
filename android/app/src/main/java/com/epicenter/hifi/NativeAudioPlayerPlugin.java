@@ -254,6 +254,12 @@ public class NativeAudioPlayerPlugin extends Plugin {
   }
 
   private Uri normalizeUri(String source) {
+    if (source.startsWith("https://localhost/_capacitor_file_/") || source.startsWith("http://localhost/_capacitor_file_/")) {
+      String filePath = source
+        .replaceFirst("^https?://localhost/_capacitor_file_", "");
+      return Uri.fromFile(new java.io.File(Uri.decode(filePath)));
+    }
+
     if (source.startsWith("content://") || source.startsWith("file://") || source.startsWith("http://") || source.startsWith("https://")) {
       return Uri.parse(source);
     }
