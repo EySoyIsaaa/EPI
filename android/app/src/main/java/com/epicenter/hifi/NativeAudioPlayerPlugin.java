@@ -68,7 +68,8 @@ public class NativeAudioPlayerPlugin extends Plugin {
     public void onPlayerError(@NonNull PlaybackException error) {
       JSObject payload = new JSObject();
       payload.put("message", error.getMessage());
-      payload.put("code", error.errorCodeName);
+      payload.put("code", error.errorCode);
+      payload.put("codeName", PlaybackException.getErrorCodeName(error.errorCode));
       notifyListeners("playbackError", payload);
       emitPlaybackState();
     }
