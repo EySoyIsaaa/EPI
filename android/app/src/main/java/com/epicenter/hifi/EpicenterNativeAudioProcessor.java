@@ -181,6 +181,9 @@ final class EpicenterNativeAudioProcessor extends BaseAudioProcessor {
       s.balance,
       s.volume
     );
+    NativeEpicenterJni.nativeSetEqEnabled(nativeHandle, s.eqEnabled);
+    NativeEpicenterJni.nativeSetEqPreampDb(nativeHandle, s.eqPreampDb);
+    NativeEpicenterJni.nativeSetEqBands(nativeHandle, s.eqBandGainsDb);
   }
 
   private void maybeLogProcessing() {
