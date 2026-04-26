@@ -30,6 +30,7 @@ public class NativeAudioPlayerPlugin extends Plugin {
   private MediaController controller;
   private ListenableFuture<MediaController> controllerFuture;
   private final Handler mainHandler = new Handler(Looper.getMainLooper());
+  private volatile JSObject lastKnownState = buildIdleState();
 
   private final Runnable positionEmitter = new Runnable() {
     @Override
@@ -94,110 +95,122 @@ public class NativeAudioPlayerPlugin extends Plugin {
 
   @PluginMethod
   public void initialize(PluginCall call) {
-    ensureController();
-    call.resolve(createStatePayload());
+    mainHandler.post(() -> {
+      ensureController();
+      call.resolve(createStatePayload());
+    });
   }
 
   @PluginMethod
   public void loadTrack(PluginCall call) {
-    ensureController();
-    if (controller == null) {
-      call.reject("Native player is not ready");
-      return;
-    }
+    mainHandler.post(() -> {
+      ensureController();
+      if (controller == null) {
+        call.reject("Native player is not ready");
+        return;
+      }
 
-    String source = call.getString("source");
-    if (source == null || source.isEmpty()) {
-      call.reject("source is required");
-      return;
-    }
+      String source = call.getString("source");
+      if (source == null || source.isEmpty()) {
+        call.reject("source is required");
+        return;
+      }
 
-    String trackId = call.getString("trackId", source);
-    String title = call.getString("title", "Unknown");
-    String artist = call.getString("artist", "Unknown Artist");
-    String album = call.getString("album", "Unknown Album");
+      String trackId = call.getString("trackId", source);
+      String title = call.getString("title", "Unknown");
+      String artist = call.getString("artist", "Unknown Artist");
+      String album = call.getString("album", "Unknown Album");
 
-    try {
-      Uri sourceUri = normalizeUri(source);
+      try {
+        Uri sourceUri = normalizeUri(source);
 
-      MediaMetadata metadata = new MediaMetadata.Builder()
-        .setTitle(title)
-        .setArtist(artist)
-        .setAlbumTitle(album)
-        .build();
+        MediaMetadata metadata = new MediaMetadata.Builder()
+          .setTitle(title)
+          .setArtist(artist)
+          .setAlbumTitle(album)
+          .build();
 
-      MediaItem item = new MediaItem.Builder()
-        .setMediaId(trackId)
-        .setUri(sourceUri)
-        .setMediaMetadata(metadata)
-        .build();
+        MediaItem item = new MediaItem.Builder()
+          .setMediaId(trackId)
+          .setUri(sourceUri)
+          .setMediaMetadata(metadata)
+          .build();
 
-      controller.setMediaItem(item);
-      controller.prepare();
-      emitPlaybackState();
-      call.resolve(createStatePayload());
-    } catch (Exception error) {
-      call.reject("Failed to load track: " + error.getMessage(), error);
-    }
+        controller.setMediaItem(item);
+        controller.prepare();
+        emitPlaybackState();
+        call.resolve(createStatePayload());
+      } catch (Exception error) {
+        call.reject("Failed to load track: " + error.getMessage(), error);
+      }
+    });
   }
 
   @PluginMethod
   public void play(PluginCall call) {
-    ensureController();
-    if (controller == null) {
-      call.reject("Native player is not ready");
-      return;
-    }
+    mainHandler.post(() -> {
+      ensureController();
+      if (controller == null) {
+        call.reject("Native player is not ready");
+        return;
+      }
 
-    controller.play();
-    emitPlaybackState();
-    call.resolve(createStatePayload());
+      controller.play();
+      emitPlaybackState();
+      call.resolve(createStatePayload());
+    });
   }
 
   @PluginMethod
   public void pause(PluginCall call) {
-    if (controller == null) {
+    mainHandler.post(() -> {
+      if (controller == null) {
+        call.resolve(createStatePayload());
+        return;
+      }
+      controller.pause();
+      emitPlaybackState();
       call.resolve(createStatePayload());
-      return;
-    }
-    controller.pause();
-    emitPlaybackState();
-    call.resolve(createStatePayload());
+    });
   }
 
   @PluginMethod
   public void seekTo(PluginCall call) {
-    ensureController();
-    if (controller == null) {
-      call.reject("Native player is not ready");
-      return;
-    }
+    mainHandler.post(() -> {
+      ensureController();
+      if (controller == null) {
+        call.reject("Native player is not ready");
+        return;
+      }
 
-    Double positionSeconds = call.getDouble("positionSeconds");
-    if (positionSeconds == null) {
-      call.reject("positionSeconds is required");
-      return;
-    }
+      Double positionSeconds = call.getDouble("positionSeconds");
+      if (positionSeconds == null) {
+        call.reject("positionSeconds is required");
+        return;
+      }
 
-    long target = Math.max(0, (long) (positionSeconds * 1000L));
-    controller.seekTo(target);
-    emitPlaybackState();
-    call.resolve(createStatePayload());
+      long target = Math.max(0, (long) (positionSeconds * 1000L));
+      controller.seekTo(target);
+      emitPlaybackState();
+      call.resolve(createStatePayload());
+    });
   }
 
   @PluginMethod
   public void reset(PluginCall call) {
-    if (controller != null) {
-      controller.stop();
-      controller.clearMediaItems();
-    }
-    emitPlaybackState();
-    call.resolve(createStatePayload());
+    mainHandler.post(() -> {
+      if (controller != null) {
+        controller.stop();
+        controller.clearMediaItems();
+      }
+      emitPlaybackState();
+      call.resolve(createStatePayload());
+    });
   }
 
   @PluginMethod
   public void getState(PluginCall call) {
-    call.resolve(createStatePayload());
+    mainHandler.post(() -> call.resolve(createStatePayload()));
   }
 
   private void ensureController() {
@@ -248,13 +261,14 @@ public class NativeAudioPlayerPlugin extends Plugin {
   }
 
   private JSObject createStatePayload() {
+    if (Looper.myLooper() != Looper.getMainLooper()) {
+      return lastKnownState;
+    }
+
     JSObject payload = new JSObject();
     if (controller == null) {
-      payload.put("isReady", false);
-      payload.put("isPlaying", false);
-      payload.put("currentTime", 0);
-      payload.put("duration", 0);
-      payload.put("playbackState", "idle");
+      payload = buildIdleState();
+      lastKnownState = payload;
       return payload;
     }
 
@@ -271,6 +285,17 @@ public class NativeAudioPlayerPlugin extends Plugin {
       payload.put("trackId", current.mediaId);
     }
 
+    lastKnownState = payload;
+    return payload;
+  }
+
+  private JSObject buildIdleState() {
+    JSObject payload = new JSObject();
+    payload.put("isReady", false);
+    payload.put("isPlaying", false);
+    payload.put("currentTime", 0);
+    payload.put("duration", 0);
+    payload.put("playbackState", "idle");
     return payload;
   }
 
