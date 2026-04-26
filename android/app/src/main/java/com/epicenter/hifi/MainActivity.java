@@ -11,9 +11,10 @@ public class MainActivity extends BridgeActivity {
   @Override
   public void onCreate(Bundle savedInstanceState) {
     // Registrar plugin ANTES de super.onCreate() para que Capacitor lo reconozca
-    Log.d("MusicScanner", "MainActivity - registrando MusicScannerPlugin");
+    Log.d("MusicScanner", "MainActivity - registrando plugins nativos");
     try {
       registerPlugin(MusicScannerPlugin.class);
+      registerPlugin(NativeAudioPlayerPlugin.class);
       Log.d("MusicScanner", "✅ Plugin registrado exitosamente");
     } catch (Exception e) {
       Log.e("MusicScanner", "❌ ERROR al registrar plugin: " + e.getMessage());
