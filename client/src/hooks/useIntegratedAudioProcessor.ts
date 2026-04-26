@@ -559,7 +559,7 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
       pendingCrossfadeInRef.current = false;
     }
     setIsPlaying(true);
-  }, [startCrossfadeIn]);
+  }, [isNativeAndroid, startCrossfadeIn]);
 
   const pause = useCallback(() => {
     if (activeBackendRef.current === 'native') {
@@ -572,7 +572,7 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
     if (!audioElementRef.current) return;
     audioElementRef.current.pause();
     setIsPlaying(false);
-  }, []);
+  }, [isNativeAndroid]);
 
   const seek = useCallback((time: number) => {
     if (activeBackendRef.current === 'native') {
@@ -601,7 +601,7 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
     
     audioElementRef.current.currentTime = time;
     setCurrentTime(time);
-  }, []);
+  }, [isNativeAndroid]);
 
   const setDspParam = useCallback((name: keyof StreamingParams, value: number) => {
     if (isNativeAndroid) {
@@ -775,7 +775,7 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
     setIsPlaying(false);
     setCurrentTime(0);
     setDuration(0);
-  }, []);
+  }, [isNativeAndroid]);
 
   return {
     isReady,
