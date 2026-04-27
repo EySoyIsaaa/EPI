@@ -226,6 +226,18 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
     void nativePluginRef.current.setEpicenterParams(payload);
   }, [isNativeAndroid]);
 
+  const pushNativeEqState = useCallback((bandsSnapshot: EqualizerBand[], enabledOverride?: boolean) => {
+    if (!isNativeAndroid || !nativePluginRef.current) {
+      return;
+    }
+
+    const enabled = enabledOverride ?? eqEnabled;
+    const gainsDb = bandsSnapshot.map((band) => band.gain);
+    void nativePluginRef.current.setEqEnabled?.({ enabled });
+    void nativePluginRef.current.setEqBands?.({ gainsDb });
+    void nativePluginRef.current.setEqPreamp?.({ preampDb: eqUserPreampDbRef.current });
+  }, [eqEnabled, isNativeAndroid]);
+
   const initAudioChain = useCallback(async (forceWeb = false) => {
     if (isNativeAndroid) {
       if (!nativePluginRef.current) {
@@ -260,6 +272,7 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
 
       setIsReady(true);
       pushNativeEpicenterParams();
+      pushNativeEqState(eqBandsRef.current);
       return;
     }
 
@@ -334,7 +347,7 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
       eqOutputGainRef.current.connect(masterGainRef.current);
       masterGainRef.current.connect(ctx.destination);
     }
-  }, [isNativeAndroid, pushNativeEpicenterParams]);
+  }, [isNativeAndroid, pushNativeEpicenterParams, pushNativeEqState]);
 
   // Función para reconectar la cadena según el estado de los efectos
   const updateAudioRouting = useCallback(() => {
@@ -688,8 +701,11 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
 
   const setEqPreampDb = useCallback((preampDb: number) => {
     eqUserPreampDbRef.current = preampDb;
+    if (isNativeAndroid) {
+      void nativePluginRef.current?.setEqPreamp?.({ preampDb });
+    }
     applyEqOutputGain(eqBandsRef.current);
-  }, [applyEqOutputGain]);
+  }, [applyEqOutputGain, isNativeAndroid]);
 
   const getAnalyserNode = useCallback(() => analyserNodeRef.current, []);
 
@@ -707,6 +723,7 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
     });
 
     if (isNativeAndroid) {
+      void nativePluginRef.current?.setEqBand?.({ index, gainDb: clampedGain });
       return;
     }
 
@@ -719,6 +736,10 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
     setEqEnabledState(enabled);
 
     if (isNativeAndroid) {
+      void nativePluginRef.current?.setEqEnabled?.({ enabled });
+      if (enabled) {
+        pushNativeEqState(eqBandsRef.current, enabled);
+      }
       return;
     }
 
@@ -743,7 +764,7 @@ export function useIntegratedAudioProcessor(): IntegratedAudioController {
         });
       }
     }, 0);
-  }, [applyEqOutputGain, updateAudioRouting, isNativeAndroid]);
+  }, [applyEqOutputGain, updateAudioRouting, isNativeAndroid, pushNativeEqState]);
 
   const setEpicenterEnabled = useCallback((enabled: boolean) => {
     epicenterEnabledRef.current = enabled;
