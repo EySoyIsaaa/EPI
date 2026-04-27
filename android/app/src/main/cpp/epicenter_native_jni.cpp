@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <algorithm>
 #include <vector>
+#include <array>
 #include <android/log.h>
 
 namespace {
@@ -10,6 +11,19 @@ namespace {
 constexpr float DENORMAL_FLOOR = 1e-24f;
 constexpr float TWO_PI = 6.28318530717958647692f;
 constexpr float EPICENTER_INTENSITY_HEADROOM = 0.75f;
+constexpr int EQ_BAND_COUNT = 31;
+constexpr float EQ_INTERNAL_BOOST_MAX_DB = 8.0f;
+constexpr float EQ_INTERNAL_CUT_MIN_DB = -12.0f;
+constexpr float EQ_SAFE_GAIN_MAX_LINEAR = 1.9952623f; // +6dB
+constexpr float EQ_AUTO_PREAMP_FACTOR = 0.92f;
+constexpr float EQ_AUTO_PREAMP_MARGIN_DB = 1.2f;
+constexpr float LIMITER_THRESHOLD = 0.96f;
+constexpr float LIMITER_MIX = 0.75f;
+constexpr float LIMITER_GAIN_FLOOR = 0.22f;
+constexpr float SUB_SPONGE_BOOST_MIN_DB = 1.5f;
+constexpr float SUB_SPONGE_BOOST_MAX_DB = 5.8f;
+constexpr float SUB_SPONGE_FREQ_MIN_HZ = 52.0f;
+constexpr float SUB_SPONGE_FREQ_MAX_HZ = 96.0f;
 constexpr const char* LOG_TAG = "EpicenterNative";
 
 inline float denormalFloor(float v) {
@@ -26,12 +40,13 @@ inline float coeffFromMs(float ms, float sampleRate) {
 }
 
 struct Biquad {
-  enum class Type { Lowpass, Highpass, Bandpass };
+  enum class Type { Lowpass, Highpass, Bandpass, Peaking, LowShelf };
 
   Type type = Type::Lowpass;
   float freq = 100.0f;
   float sr = 48000.0f;
   float q = 0.707f;
+  float gainDb = 0.0f;
 
   float b0 = 0.0f;
   float b1 = 0.0f;
@@ -44,10 +59,11 @@ struct Biquad {
   float y1 = 0.0f;
   float y2 = 0.0f;
 
-  void update(Type newType, float newFreq, float newQ) {
+  void update(Type newType, float newFreq, float newQ, float newGainDb = 0.0f) {
     type = newType;
     freq = newFreq;
     q = newQ;
+    gainDb = newGainDb;
 
     const float clampedFreq = clampf(freq, 10.0f, sr * 0.45f);
     const float clampedQ = clampf(q, 0.2f, 12.0f);
@@ -55,6 +71,8 @@ struct Biquad {
     const float sinOmega = std::sin(omega);
     const float cosOmega = std::cos(omega);
     const float alpha = sinOmega / (2.0f * clampedQ);
+    const float A = std::pow(10.0f, gainDb / 40.0f);
+    const float sqrtA = std::sqrt(A);
 
     float lb0 = 0.0f;
     float lb1 = 0.0f;
@@ -88,6 +106,25 @@ struct Biquad {
         la1 = -2.0f * cosOmega;
         la2 = 1.0f - alpha;
         break;
+      case Type::Peaking:
+        lb0 = 1.0f + alpha * A;
+        lb1 = -2.0f * cosOmega;
+        lb2 = 1.0f - alpha * A;
+        la0 = 1.0f + alpha / A;
+        la1 = -2.0f * cosOmega;
+        la2 = 1.0f - alpha / A;
+        break;
+      case Type::LowShelf: {
+        const float slope = clampf(clampedQ, 0.3f, 1.5f);
+        const float alphaShelf = sinOmega * 0.5f * std::sqrt((A + (1.0f / A)) * ((1.0f / slope) - 1.0f) + 2.0f);
+        lb0 = A * ((A + 1.0f) - (A - 1.0f) * cosOmega + 2.0f * sqrtA * alphaShelf);
+        lb1 = 2.0f * A * ((A - 1.0f) - (A + 1.0f) * cosOmega);
+        lb2 = A * ((A + 1.0f) - (A - 1.0f) * cosOmega - 2.0f * sqrtA * alphaShelf);
+        la0 = (A + 1.0f) + (A - 1.0f) * cosOmega + 2.0f * sqrtA * alphaShelf;
+        la1 = -2.0f * ((A - 1.0f) + (A + 1.0f) * cosOmega);
+        la2 = (A + 1.0f) + (A - 1.0f) * cosOmega - 2.0f * sqrtA * alphaShelf;
+        break;
+      }
     }
 
     b0 = lb0 / la0;
@@ -127,8 +164,22 @@ struct ChannelState {
   Biquad lowMidBody;
   Biquad lowMidDip;
   Biquad subLowpass;
+  Biquad subTextureLowpass;
+  Biquad subSpongeShelf;
   Biquad outputDcHighpass;
   EnvelopeFollower voiceEnv;
+
+  void reset() {
+    voiceHighpass = Biquad{};
+    bassLowpass = Biquad{};
+    lowMidBody = Biquad{};
+    lowMidDip = Biquad{};
+    subLowpass = Biquad{};
+    subTextureLowpass = Biquad{};
+    subSpongeShelf = Biquad{};
+    outputDcHighpass = Biquad{};
+    voiceEnv = EnvelopeFollower{};
+  }
 };
 
 struct MonoState {
@@ -147,6 +198,50 @@ struct MonoState {
   float lastDetector = 0.0f;
   int flipState = 1;
   int holdSamples = 0;
+
+  void reset() {
+    band60 = Biquad{};
+    band80 = Biquad{};
+    band110 = Biquad{};
+    monoLowpass = Biquad{};
+    diffHighpass = Biquad{};
+    synthHighpass = Biquad{};
+    synthLowpass = Biquad{};
+    detectorEnv = EnvelopeFollower{};
+    monoEnv = EnvelopeFollower{};
+    diffEnv = EnvelopeFollower{};
+    gateEnv = EnvelopeFollower{};
+    synthLevelEnv = EnvelopeFollower{};
+    lastDetector = 0.0f;
+    flipState = 1;
+    holdSamples = 0;
+  }
+};
+
+struct EqChannelState {
+  std::array<Biquad, EQ_BAND_COUNT> bands;
+
+  void reset() {
+    for (auto& band : bands) {
+      band = Biquad{};
+    }
+  }
+};
+
+struct LimiterState {
+  float envelope = 0.0f;
+  float gain = 1.0f;
+
+  void reset() {
+    envelope = 0.0f;
+    gain = 1.0f;
+  }
+};
+
+static const std::array<float, EQ_BAND_COUNT> kEqFrequenciesHz = {
+  20.0f, 25.0f, 31.5f, 40.0f, 50.0f, 63.0f, 80.0f, 100.0f, 125.0f, 160.0f,
+  200.0f, 250.0f, 315.0f, 400.0f, 500.0f, 630.0f, 800.0f, 1000.0f, 1250.0f, 1600.0f,
+  2000.0f, 2500.0f, 3150.0f, 4000.0f, 5000.0f, 6300.0f, 8000.0f, 10000.0f, 12500.0f, 16000.0f, 20000.0f
 };
 
 struct DerivedFreq {
@@ -185,6 +280,7 @@ class EpicenterEngine {
       initChannel(c);
     }
     initMono();
+    initEq();
   }
 
   void setParams(bool enabled, float sweepFreq, float width, float intensity, float balance, float volume) {
@@ -209,6 +305,32 @@ class EpicenterEngine {
     }
   }
 
+  void setEqEnabled(bool enabled) {
+    eqEnabled_ = enabled;
+  }
+
+  void setEqPreampDb(float preampDb) {
+    userEqPreampDb_ = clampf(preampDb, -24.0f, 0.0f);
+    updateEqSafetyAndTargets();
+  }
+
+  void setEqBand(int index, float gainDb) {
+    if (index < 0 || index >= EQ_BAND_COUNT) return;
+    eqTargetGainsDb_[static_cast<size_t>(index)] = clampf(gainDb, EQ_INTERNAL_CUT_MIN_DB, EQ_INTERNAL_BOOST_MAX_DB);
+    updateEqSafetyAndTargets();
+  }
+
+  void setEqBands(const jfloat* gainsDb, int len) {
+    for (int i = 0; i < EQ_BAND_COUNT; ++i) {
+      float value = 0.0f;
+      if (gainsDb && i < len) {
+        value = gainsDb[i];
+      }
+      eqTargetGainsDb_[static_cast<size_t>(i)] = clampf(value, EQ_INTERNAL_CUT_MIN_DB, EQ_INTERNAL_BOOST_MAX_DB);
+    }
+    updateEqSafetyAndTargets();
+  }
+
   void processPcm16(const int16_t* in, int16_t* out, int frameCount, int channelCount) {
     if (!in || !out || frameCount <= 0) return;
 
@@ -216,7 +338,10 @@ class EpicenterEngine {
 
     if (!enabled_ || intensity_ <= 0.01f) {
       const int samples = frameCount * usedChannels;
-      for (int i = 0; i < samples; ++i) out[i] = in[i];
+      for (int i = 0; i < samples; ++i) {
+        float dry = pcmToFloat(in[i]);
+        out[i] = floatToPcm(processEqAndLimiter(dry, i % usedChannels));
+      }
       return;
     }
 
@@ -230,6 +355,7 @@ class EpicenterEngine {
     const float lowMidBodyAmount = 0.12f + balanceNorm * 0.08f;
     const float lowMidDipAmount = (0.08f + intensityNorm * 0.16f) * (0.45f + widthNorm * 0.3f);
     const int gateHoldSamples = static_cast<int>(sampleRate_ * (0.025f + intensityNorm * 0.06f));
+    updateSubSpongeVoicing(intensityNorm, widthNorm);
 
     subBuffer_.resize(static_cast<size_t>(frameCount));
 
@@ -295,13 +421,21 @@ class EpicenterEngine {
           body * lowMidBodyAmount * (0.45f + voiceProtection * 0.55f) -
           dip * lowMidDipAmount;
 
-        const float generatedSub = state.subLowpass.process(subBuffer_[static_cast<size_t>(i)]) * (0.4f + voiceProtection * 0.6f);
+        float generatedSub = state.subLowpass.process(subBuffer_[static_cast<size_t>(i)]) * (0.4f + voiceProtection * 0.6f);
+        const float subTexture = state.subTextureLowpass.process(generatedSub);
+        float spongySub = state.subSpongeShelf.process(subTexture);
+        spongySub = std::tanh(spongySub * 1.45f) / std::tanh(1.45f);
+        const float spongeMix = 0.42f + intensityNorm * 0.22f;
+        generatedSub = generatedSub * (1.0f - spongeMix) + spongySub * spongeMix;
 
         float mixed = voicePath + shapedBassProgram + generatedSub;
         const float protectionGain = 0.94f + voiceProtection * 0.06f;
 
         mixed *= volumeGain * protectionGain;
-        mixed = std::tanh(mixed * 0.94f) / std::tanh(0.94f);
+        // Orden DSP elegido: Epicenter -> EQ 31 bandas -> limiter final.
+        // Así conservamos el carácter del Epicenter y controlamos boosts del EQ al final.
+        mixed = std::tanh(mixed * 0.94f) / std::tanh(0.94f); // Epicenter saturación propia
+        mixed = processEqAndLimiter(mixed, ch);
         mixed = state.outputDcHighpass.process(mixed);
 
         out[i * usedChannels + ch] = floatToPcm(denormalFloor(mixed));
@@ -313,6 +447,7 @@ class EpicenterEngine {
   float sampleRate_;
   int channelCount_;
   bool enabled_ = false;
+  bool eqEnabled_ = true;
   bool lastLoggedEnabled_ = false;
 
   float sweepFreq_ = 45.0f;
@@ -325,8 +460,18 @@ class EpicenterEngine {
   float lastWidth_ = -1.0f;
 
   ChannelState channels_[2];
+  EqChannelState eqChannels_[2];
+  LimiterState limiterStates_[2];
   MonoState monoState_;
   std::vector<float> subBuffer_;
+  std::array<float, EQ_BAND_COUNT> eqTargetGainsDb_{};
+  std::array<float, EQ_BAND_COUNT> eqCurrentGainsDb_{};
+  float userEqPreampDb_ = 0.0f;
+  float autoEqPreampDb_ = 0.0f;
+  float eqTotalPreampLinear_ = 1.0f;
+  float eqSmoothingCoeff_ = 0.0f;
+  float subSpongeBoostDb_ = -100.0f;
+  float subSpongeFreqHz_ = -1.0f;
 
   void initChannel(ChannelState& c) {
     DerivedFreq d = getDerivedFrequencies(sweepFreq_, width_);
@@ -335,6 +480,8 @@ class EpicenterEngine {
     c.lowMidBody.sr = sampleRate_;
     c.lowMidDip.sr = sampleRate_;
     c.subLowpass.sr = sampleRate_;
+    c.subTextureLowpass.sr = sampleRate_;
+    c.subSpongeShelf.sr = sampleRate_;
     c.outputDcHighpass.sr = sampleRate_;
 
     c.voiceHighpass.update(Biquad::Type::Highpass, d.crossoverHz, 0.707f);
@@ -342,10 +489,27 @@ class EpicenterEngine {
     c.lowMidBody.update(Biquad::Type::Bandpass, d.bodyHz, 0.85f);
     c.lowMidDip.update(Biquad::Type::Bandpass, d.bodyHz * 1.18f, 1.1f);
     c.subLowpass.update(Biquad::Type::Lowpass, d.subTopHz, 0.707f);
+    c.subTextureLowpass.update(Biquad::Type::Lowpass, d.subTopHz * 1.35f, 0.707f);
+    c.subSpongeShelf.update(Biquad::Type::LowShelf, 74.0f, 0.8f, 2.2f);
     c.outputDcHighpass.update(Biquad::Type::Highpass, 18.0f, 0.707f);
 
     c.voiceEnv.attackCoeff = coeffFromMs(6.0f, sampleRate_);
     c.voiceEnv.releaseCoeff = coeffFromMs(110.0f, sampleRate_);
+  }
+
+  void initEq() {
+    const float nyquistSafe = sampleRate_ * 0.45f;
+    for (int ch = 0; ch < 2; ++ch) {
+      for (int i = 0; i < EQ_BAND_COUNT; ++i) {
+        eqChannels_[ch].bands[static_cast<size_t>(i)].sr = sampleRate_;
+        const float freq = clampf(kEqFrequenciesHz[static_cast<size_t>(i)], 20.0f, nyquistSafe);
+        eqChannels_[ch].bands[static_cast<size_t>(i)].update(Biquad::Type::Peaking, freq, 1.35f, 0.0f);
+      }
+      limiterStates_[ch].envelope = 0.0f;
+      limiterStates_[ch].gain = 1.0f;
+    }
+    eqSmoothingCoeff_ = coeffFromMs(20.0f, sampleRate_);
+    updateEqSafetyAndTargets();
   }
 
   void initMono() {
@@ -391,6 +555,7 @@ class EpicenterEngine {
       c.lowMidBody.update(Biquad::Type::Bandpass, d.bodyHz, 0.85f);
       c.lowMidDip.update(Biquad::Type::Bandpass, d.bodyHz * 1.18f, 1.1f);
       c.subLowpass.update(Biquad::Type::Lowpass, d.subTopHz, 0.707f);
+      c.subTextureLowpass.update(Biquad::Type::Lowpass, d.subTopHz * 1.35f, 0.707f);
     }
 
     monoState_.band60.update(Biquad::Type::Bandpass, d.detector60, 1.35f);
@@ -398,6 +563,84 @@ class EpicenterEngine {
     monoState_.band110.update(Biquad::Type::Bandpass, d.detector110, 1.8f);
     monoState_.synthHighpass.update(Biquad::Type::Highpass, d.synthHighHz, 0.707f);
     monoState_.synthLowpass.update(Biquad::Type::Lowpass, d.synthLowHz, 0.707f);
+  }
+
+  void updateSubSpongeVoicing(float intensityNorm, float widthNorm) {
+    // Voicing inspirado en "Bass Boost" (low-shelf fijo + saturación suave)
+    // para reforzar subgrave con ataque más redondo/esponjoso sin romper voces.
+    const float targetBoostDb = clampf(
+      SUB_SPONGE_BOOST_MIN_DB + intensityNorm * (SUB_SPONGE_BOOST_MAX_DB - SUB_SPONGE_BOOST_MIN_DB),
+      SUB_SPONGE_BOOST_MIN_DB,
+      SUB_SPONGE_BOOST_MAX_DB
+    );
+    const float targetFreqHz = clampf(
+      SUB_SPONGE_FREQ_MIN_HZ + widthNorm * (SUB_SPONGE_FREQ_MAX_HZ - SUB_SPONGE_FREQ_MIN_HZ),
+      SUB_SPONGE_FREQ_MIN_HZ,
+      SUB_SPONGE_FREQ_MAX_HZ
+    );
+
+    if (std::fabs(targetBoostDb - subSpongeBoostDb_) < 0.02f && std::fabs(targetFreqHz - subSpongeFreqHz_) < 0.1f) {
+      return;
+    }
+
+    subSpongeBoostDb_ = targetBoostDb;
+    subSpongeFreqHz_ = targetFreqHz;
+    for (auto& c : channels_) {
+      c.subSpongeShelf.update(Biquad::Type::LowShelf, subSpongeFreqHz_, 0.8f, subSpongeBoostDb_);
+    }
+  }
+
+  void updateEqSafetyAndTargets() {
+    float maxBoostDb = 0.0f;
+    for (int i = 0; i < EQ_BAND_COUNT; ++i) {
+      maxBoostDb = std::max(maxBoostDb, std::max(0.0f, eqTargetGainsDb_[static_cast<size_t>(i)]));
+    }
+    autoEqPreampDb_ = -(maxBoostDb * EQ_AUTO_PREAMP_FACTOR + (maxBoostDb > 0.0f ? EQ_AUTO_PREAMP_MARGIN_DB : 0.0f));
+    const float totalPreampDb = clampf(userEqPreampDb_ + autoEqPreampDb_, -30.0f, 0.0f);
+    eqTotalPreampLinear_ = std::pow(10.0f, totalPreampDb / 20.0f);
+  }
+
+  float processEqAndLimiter(float sample, int ch) {
+    if (!eqEnabled_) {
+      return applySoftLimiter(sample, ch);
+    }
+
+    float out = sample * eqTotalPreampLinear_;
+    EqChannelState& eqState = eqChannels_[std::min(ch, 1)];
+
+    for (int i = 0; i < EQ_BAND_COUNT; ++i) {
+      float& currentDb = eqCurrentGainsDb_[static_cast<size_t>(i)];
+      const float targetDb = eqTargetGainsDb_[static_cast<size_t>(i)];
+      currentDb = targetDb + eqSmoothingCoeff_ * (currentDb - targetDb);
+      float effectiveDb = clampf(currentDb, EQ_INTERNAL_CUT_MIN_DB, EQ_INTERNAL_BOOST_MAX_DB);
+      float linear = std::pow(10.0f, effectiveDb / 20.0f);
+      if (linear > EQ_SAFE_GAIN_MAX_LINEAR) {
+        effectiveDb = 20.0f * std::log10(EQ_SAFE_GAIN_MAX_LINEAR);
+      }
+      eqState.bands[static_cast<size_t>(i)].update(Biquad::Type::Peaking, kEqFrequenciesHz[static_cast<size_t>(i)], 1.35f, effectiveDb);
+      out = eqState.bands[static_cast<size_t>(i)].process(out);
+    }
+
+    return applySoftLimiter(out, ch);
+  }
+
+  float applySoftLimiter(float sample, int ch) {
+    LimiterState& lim = limiterStates_[std::min(ch, 1)];
+    const float absSample = std::fabs(sample);
+    const float envCoeff = absSample > lim.envelope ? coeffFromMs(1.5f, sampleRate_) : coeffFromMs(35.0f, sampleRate_);
+    lim.envelope = absSample + envCoeff * (lim.envelope - absSample);
+
+    float gainTarget = 1.0f;
+    if (lim.envelope > LIMITER_THRESHOLD) {
+      gainTarget = LIMITER_THRESHOLD / (lim.envelope + 1e-6f);
+    }
+    gainTarget = clampf(gainTarget, LIMITER_GAIN_FLOOR, 1.0f);
+    const float gainCoeff = gainTarget < lim.gain ? coeffFromMs(0.6f, sampleRate_) : coeffFromMs(45.0f, sampleRate_);
+    lim.gain = gainTarget + gainCoeff * (lim.gain - gainTarget);
+
+    const float limited = sample * lim.gain;
+    const float soft = std::tanh(limited * 1.65f) / std::tanh(1.65f);
+    return denormalFloor(soft * LIMITER_MIX + limited * (1.0f - LIMITER_MIX));
   }
 
   static float computeGate(float monoEnv, float diffEnv, float weightedDetectorEnv) {
@@ -451,6 +694,63 @@ Java_com_epicenter_hifi_NativeEpicenterJni_nativeSetParams(
   EpicenterEngine* engine = fromHandle(handle);
   if (!engine) return;
   engine->setParams(enabled == JNI_TRUE, sweepFreq, width, intensity, balance, volume);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_epicenter_hifi_NativeEpicenterJni_nativeSetEqEnabled(
+  JNIEnv*,
+  jclass,
+  jlong handle,
+  jboolean enabled
+) {
+  EpicenterEngine* engine = fromHandle(handle);
+  if (!engine) return;
+  engine->setEqEnabled(enabled == JNI_TRUE);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_epicenter_hifi_NativeEpicenterJni_nativeSetEqPreampDb(
+  JNIEnv*,
+  jclass,
+  jlong handle,
+  jfloat preampDb
+) {
+  EpicenterEngine* engine = fromHandle(handle);
+  if (!engine) return;
+  engine->setEqPreampDb(preampDb);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_epicenter_hifi_NativeEpicenterJni_nativeSetEqBand(
+  JNIEnv*,
+  jclass,
+  jlong handle,
+  jint index,
+  jfloat gainDb
+) {
+  EpicenterEngine* engine = fromHandle(handle);
+  if (!engine) return;
+  engine->setEqBand(index, gainDb);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_epicenter_hifi_NativeEpicenterJni_nativeSetEqBands(
+  JNIEnv* env,
+  jclass,
+  jlong handle,
+  jfloatArray gainsDb
+) {
+  EpicenterEngine* engine = fromHandle(handle);
+  if (!engine) return;
+  if (!gainsDb) {
+    engine->setEqBands(nullptr, 0);
+    return;
+  }
+
+  const jsize len = env->GetArrayLength(gainsDb);
+  jfloat* values = env->GetFloatArrayElements(gainsDb, nullptr);
+  engine->setEqBands(values, static_cast<int>(len));
+  env->ReleaseFloatArrayElements(gainsDb, values, JNI_ABORT);
 }
 
 extern "C" JNIEXPORT void JNICALL
