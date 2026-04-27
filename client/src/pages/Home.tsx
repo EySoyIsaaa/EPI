@@ -393,6 +393,10 @@ export default function Home() {
 
   const resolveTrackSource = useCallback(
     async (track: Track): Promise<File | string> => {
+      if (androidMusicLibrary.isAndroid && track.sourceUri) {
+        return track.sourceUri;
+      }
+
       if (track.sourceType === "media-store" && track.sourceUri) {
         if (track.unavailable) {
           throw new Error("Track source not available");
@@ -433,7 +437,7 @@ export default function Home() {
 
       const trackFile = track.file ?? (await queue.getTrackFile(track));
       if (androidMusicLibrary.isAndroid) {
-        throw new Error("En Android la reproducción es nativa y requiere fuentes MediaStore/content://");
+        throw new Error("En Android la reproducción nativa requiere sourceUri válido");
       }
       if (!trackFile) {
         throw new Error("Track source not available");
@@ -726,11 +730,6 @@ export default function Home() {
   ]);
 
   const handleFileSelect = useCallback(async () => {
-    if (androidMusicLibrary.isAndroid) {
-      toast.info("En Android usa la importación nativa (MediaStore).");
-      return;
-    }
-
     const input = document.createElement("input");
     input.type = "file";
     input.accept = "audio/*,.mp3,.wav,.flac,.ogg,.m4a,.aac";

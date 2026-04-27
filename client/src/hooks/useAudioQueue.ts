@@ -333,11 +333,119 @@ export function useAudioQueue(): QueueController {
     }
   }, []);
 
+  const fileToBase64DataUrl = useCallback((file: File): Promise<string> => (
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(reader.error || new Error('No se pudo leer el archivo'));
+      reader.readAsDataURL(file);
+    })
+  ), []);
+
   // === FUNCIONES DE BIBLIOTECA (PERSISTENTES) ===
 
   const addToLibrary = useCallback(async (files: File[]): Promise<ImportResult> => {
     if (isNativeAndroid) {
-      throw new Error('Android usa importación nativa (MediaStore), no archivos WebView.');
+      const plugin = getMusicScannerPlugin();
+      if (!plugin?.importManualTrack) {
+        throw new Error('Plugin MusicScanner.importManualTrack no disponible');
+      }
+
+      const newTracks: Track[] = [];
+      const duplicates: string[] = [];
+      const total = files.length;
+      const existingFingerprints = new Set<string>();
+
+      for (const track of library) {
+        existingFingerprints.add(
+          musicLibraryDB.generateFingerprint(track.fileName || track.title, 0, {
+            duration: track.duration || 0,
+            artist: track.artist,
+            title: track.title,
+            sourceType: 'file',
+          }),
+        );
+      }
+
+      setImportProgress({
+        isImporting: true,
+        current: 0,
+        total,
+        currentFileName: files[0]?.name || '',
+      });
+
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        setImportProgress({
+          isImporting: true,
+          current: i + 1,
+          total,
+          currentFileName: file.name,
+        });
+
+        const metadata = await extractMetadata(file);
+        const fingerprint = musicLibraryDB.generateFingerprint(file.name, file.size, {
+          duration: metadata.duration,
+          artist: metadata.artist,
+          title: metadata.title,
+          sourceType: 'file',
+        });
+
+        if (existingFingerprints.has(fingerprint)) {
+          duplicates.push(file.name);
+          continue;
+        }
+
+        try {
+          const imported = await plugin.importManualTrack({
+            fileName: file.name,
+            mimeType: file.type || 'audio/mpeg',
+            base64Data: await fileToBase64DataUrl(file),
+          });
+
+          const track: Track = {
+            id: `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            title: metadata.title,
+            artist: metadata.artist,
+            duration: metadata.duration,
+            fileName: file.name,
+            fileType: file.type || 'audio/mpeg',
+            sourceUri: imported?.filePath,
+            sourceType: 'file',
+            bitDepth: metadata.bitDepth,
+            sampleRate: metadata.sampleRate,
+            bitrate: metadata.bitrate,
+            isHiRes: metadata.isHiRes,
+            coverUrl: metadata.coverBase64 || metadata.coverUrl,
+            lastValidatedAt: Date.now(),
+          };
+
+          newTracks.push(track);
+          existingFingerprints.add(fingerprint);
+        } catch (error) {
+          logger.error('[Library] Error importing manual Android track:', error);
+        }
+      }
+
+      if (newTracks.length > 0) {
+        setLibrary((prev) => {
+          const next = [...prev, ...newTracks];
+          void persistNativeLibrarySnapshot(next);
+          return next;
+        });
+      }
+
+      setImportProgress({
+        isImporting: false,
+        current: total,
+        total,
+        currentFileName: '',
+      });
+
+      return {
+        added: newTracks.length,
+        duplicates,
+      };
     }
 
     const newTracks: Track[] = [];
@@ -450,7 +558,7 @@ export function useAudioQueue(): QueueController {
       added: newTracks.length,
       duplicates,
     };
-  }, [extractMetadata, isNativeAndroid]);
+  }, [extractMetadata, fileToBase64DataUrl, getMusicScannerPlugin, isNativeAndroid, library, persistNativeLibrarySnapshot]);
 
   const addMediaStoreTracks = useCallback(async (
     tracks: AndroidMusicFile[],
