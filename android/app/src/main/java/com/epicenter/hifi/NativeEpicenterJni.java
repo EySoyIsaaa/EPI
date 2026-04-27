@@ -23,6 +23,14 @@ final class NativeEpicenterJni {
     float volume
   );
 
+  static native void nativeSetEqEnabled(long handle, boolean enabled);
+
+  static native void nativeSetEqPreampDb(long handle, float preampDb);
+
+  static native void nativeSetEqBand(long handle, int index, float gainDb);
+
+  static native void nativeSetEqBands(long handle, float[] gainsDb);
+
   static native void nativeProcessPcm16(
     long handle,
     ByteBuffer input,
