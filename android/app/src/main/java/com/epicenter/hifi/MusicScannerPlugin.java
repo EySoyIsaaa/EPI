@@ -29,6 +29,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.security.MessageDigest;
+import java.util.Locale;
 
 @CapacitorPlugin(
   name = "MusicScanner",
@@ -145,6 +146,69 @@ public class MusicScannerPlugin extends Plugin {
       cacheDir.mkdirs();
     }
     return cacheDir;
+  }
+
+  private File getManualImportsDir() {
+    File importsDir = new File(getContext().getFilesDir(), "manual_imports");
+    if (!importsDir.exists()) {
+      importsDir.mkdirs();
+    }
+    return importsDir;
+  }
+
+  @PluginMethod
+  public void importManualTrack(PluginCall call) {
+    String fileName = call.getString("fileName");
+    String mimeType = call.getString("mimeType", "audio/mpeg");
+    String base64Data = call.getString("base64Data");
+
+    if (fileName == null || fileName.isEmpty()) {
+      call.reject("fileName is required");
+      return;
+    }
+    if (base64Data == null || base64Data.isEmpty()) {
+      call.reject("base64Data is required");
+      return;
+    }
+
+    try {
+      String extension = ".mp3";
+      int dot = fileName.lastIndexOf('.');
+      if (dot >= 0 && dot < fileName.length() - 1) {
+        extension = fileName.substring(dot).toLowerCase(Locale.US);
+      }
+
+      String normalizedPayload = base64Data;
+      int comma = normalizedPayload.indexOf(',');
+      if (comma >= 0) {
+        normalizedPayload = normalizedPayload.substring(comma + 1);
+      }
+
+      byte[] audioBytes = Base64.decode(normalizedPayload, Base64.DEFAULT);
+      if (audioBytes.length == 0) {
+        call.reject("decoded file is empty");
+        return;
+      }
+
+      String identity = fileName + "|" + audioBytes.length + "|" + mimeType;
+      String hash = sha1(identity);
+      File output = new File(getManualImportsDir(), "manual_" + hash + extension);
+
+      if (!output.exists() || output.length() != audioBytes.length) {
+        FileOutputStream fos = new FileOutputStream(output, false);
+        fos.write(audioBytes);
+        fos.flush();
+        fos.close();
+      }
+
+      JSObject result = new JSObject();
+      result.put("filePath", output.getAbsolutePath());
+      result.put("size", output.length());
+      result.put("mimeType", mimeType);
+      call.resolve(result);
+    } catch (Exception e) {
+      call.reject("Error importing manual track: " + e.getMessage(), e);
+    }
   }
 
   private String getAudioAlias() {

@@ -22,6 +22,8 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import com.google.common.util.concurrent.ListenableFuture;
 
+import org.json.JSONArray;
+
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -230,6 +232,122 @@ public class NativeAudioPlayerPlugin extends Plugin {
 
       JSObject result = new JSObject();
       result.put("success", true);
+      call.resolve(result);
+    });
+  }
+
+  @PluginMethod
+  public void setEqEnabled(PluginCall call) {
+    mainHandler.post(() -> {
+      boolean enabled = Boolean.TRUE.equals(call.getBoolean("enabled", false));
+      EpicenterSettingsStore.setEqEnabled(enabled);
+      NativeAudioPlaybackService.onDspSettingsUpdated();
+
+      JSObject result = new JSObject();
+      result.put("success", true);
+      result.put("enabled", enabled);
+      call.resolve(result);
+    });
+  }
+
+  @PluginMethod
+  public void setEqBand(PluginCall call) {
+    mainHandler.post(() -> {
+      Integer index = call.getInt("index");
+      Double gainDbValue = call.getDouble("gainDb");
+      if (index == null || gainDbValue == null) {
+        call.reject("index y gainDb son requeridos");
+        return;
+      }
+
+      EpicenterSettingsStore.setEqBand(index, gainDbValue.floatValue());
+      NativeAudioPlaybackService.onDspSettingsUpdated();
+
+      JSObject result = new JSObject();
+      result.put("success", true);
+      result.put("index", index);
+      result.put("gainDb", gainDbValue);
+      call.resolve(result);
+    });
+  }
+
+  @PluginMethod
+  public void setEqBands(PluginCall call) {
+    mainHandler.post(() -> {
+      JSONArray values = call.getArray("gainsDb");
+      if (values == null) {
+        call.reject("gainsDb es requerido");
+        return;
+      }
+
+      float[] gains = new float[EpicenterSettingsStore.EQ_BAND_COUNT];
+      int len = Math.min(values.length(), gains.length);
+      for (int i = 0; i < len; i++) {
+        Object value = values.opt(i);
+        if (value instanceof Number) {
+          gains[i] = ((Number) value).floatValue();
+        } else {
+          gains[i] = 0f;
+        }
+      }
+
+      EpicenterSettingsStore.setEqBands(gains);
+      NativeAudioPlaybackService.onDspSettingsUpdated();
+
+      JSObject result = new JSObject();
+      result.put("success", true);
+      result.put("count", len);
+      call.resolve(result);
+    });
+  }
+
+  @PluginMethod
+  public void setEqPreset(PluginCall call) {
+    mainHandler.post(() -> {
+      JSONArray values = call.getArray("gainsDb");
+      float[] gains = new float[EpicenterSettingsStore.EQ_BAND_COUNT];
+      String presetName = call.getString("name", "custom");
+
+      if (values != null) {
+        int len = Math.min(values.length(), gains.length);
+        for (int i = 0; i < len; i++) {
+          Object value = values.opt(i);
+          gains[i] = value instanceof Number ? ((Number) value).floatValue() : 0f;
+        }
+      } else if ("flat".equalsIgnoreCase(presetName)) {
+        for (int i = 0; i < gains.length; i++) {
+          gains[i] = 0f;
+        }
+      } else {
+        call.reject("setEqPreset requiere gainsDb o name='flat'");
+        return;
+      }
+
+      EpicenterSettingsStore.setEqBands(gains);
+      NativeAudioPlaybackService.onDspSettingsUpdated();
+
+      JSObject result = new JSObject();
+      result.put("success", true);
+      result.put("name", presetName);
+      call.resolve(result);
+    });
+  }
+
+  @PluginMethod
+  public void setEqPreamp(PluginCall call) {
+    mainHandler.post(() -> {
+      Double preampDbValue = call.getDouble("preampDb");
+      if (preampDbValue == null) {
+        call.reject("preampDb es requerido");
+        return;
+      }
+
+      EpicenterSettingsStore.setEqPreampDb(preampDbValue.floatValue());
+      NativeAudioPlaybackService.onDspSettingsUpdated();
+
+      JSObject result = new JSObject();
+      result.put("success", true);
+      result.put("preampDb", preampDbValue);
       call.resolve(result);
     });
   }
