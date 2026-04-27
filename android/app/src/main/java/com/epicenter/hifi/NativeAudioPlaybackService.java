@@ -96,6 +96,13 @@ public class NativeAudioPlaybackService extends MediaSessionService {
     }
   }
 
+  static void resetDspState() {
+    NativeAudioPlaybackService current = instance;
+    if (current != null && current.epicenterProcessor != null) {
+      current.epicenterProcessor.resetState();
+    }
+  }
+
   private void ensureNotificationChannel() {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
       return;
