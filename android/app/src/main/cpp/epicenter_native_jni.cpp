@@ -255,36 +255,6 @@ static const std::array<float, EQ_BAND_COUNT> kEqFrequenciesHz = {
   2000.0f, 2500.0f, 3150.0f, 4000.0f, 5000.0f, 6300.0f, 8000.0f, 10000.0f, 12500.0f, 16000.0f, 20000.0f
 };
 
-struct EqChannelState {
-  std::array<Biquad, EQ_BAND_COUNT> bands;
-};
-
-struct LimiterState {
-  float envelope = 0.0f;
-  float gain = 1.0f;
-};
-
-static const std::array<float, EQ_BAND_COUNT> kEqFrequenciesHz = {
-  20.0f, 25.0f, 31.5f, 40.0f, 50.0f, 63.0f, 80.0f, 100.0f, 125.0f, 160.0f,
-  200.0f, 250.0f, 315.0f, 400.0f, 500.0f, 630.0f, 800.0f, 1000.0f, 1250.0f, 1600.0f,
-  2000.0f, 2500.0f, 3150.0f, 4000.0f, 5000.0f, 6300.0f, 8000.0f, 10000.0f, 12500.0f, 16000.0f, 20000.0f
-};
-
-struct EqChannelState {
-  std::array<Biquad, EQ_BAND_COUNT> bands;
-};
-
-struct LimiterState {
-  float envelope = 0.0f;
-  float gain = 1.0f;
-};
-
-static const std::array<float, EQ_BAND_COUNT> kEqFrequenciesHz = {
-  20.0f, 25.0f, 31.5f, 40.0f, 50.0f, 63.0f, 80.0f, 100.0f, 125.0f, 160.0f,
-  200.0f, 250.0f, 315.0f, 400.0f, 500.0f, 630.0f, 800.0f, 1000.0f, 1250.0f, 1600.0f,
-  2000.0f, 2500.0f, 3150.0f, 4000.0f, 5000.0f, 6300.0f, 8000.0f, 10000.0f, 12500.0f, 16000.0f, 20000.0f
-};
-
 struct DerivedFreq {
   float detector60;
   float detector80;
@@ -344,6 +314,32 @@ class EpicenterEngine {
       lastSweepFreq_ = sweepFreq_;
       lastWidth_ = width_;
     }
+  }
+
+  void setEqEnabled(bool enabled) {
+    eqEnabled_ = enabled;
+  }
+
+  void setEqPreampDb(float preampDb) {
+    userEqPreampDb_ = clampf(preampDb, -24.0f, 0.0f);
+    updateEqSafetyAndTargets();
+  }
+
+  void setEqBand(int index, float gainDb) {
+    if (index < 0 || index >= EQ_BAND_COUNT) return;
+    eqTargetGainsDb_[static_cast<size_t>(index)] = clampf(gainDb, EQ_INTERNAL_CUT_MIN_DB, EQ_INTERNAL_BOOST_MAX_DB);
+    updateEqSafetyAndTargets();
+  }
+
+  void setEqBands(const jfloat* gainsDb, int len) {
+    for (int i = 0; i < EQ_BAND_COUNT; ++i) {
+      float value = 0.0f;
+      if (gainsDb && i < len) {
+        value = gainsDb[i];
+      }
+      eqTargetGainsDb_[static_cast<size_t>(i)] = clampf(value, EQ_INTERNAL_CUT_MIN_DB, EQ_INTERNAL_BOOST_MAX_DB);
+    }
+    updateEqSafetyAndTargets();
   }
 
   void setEqEnabled(bool enabled) {
@@ -742,6 +738,21 @@ class EpicenterEngine {
     updateEqSafetyAndTargets();
   }
 
+  void initEq() {
+    const float nyquistSafe = sampleRate_ * 0.45f;
+    for (int ch = 0; ch < 2; ++ch) {
+      for (int i = 0; i < EQ_BAND_COUNT; ++i) {
+        eqChannels_[ch].bands[static_cast<size_t>(i)].sr = sampleRate_;
+        const float freq = clampf(kEqFrequenciesHz[static_cast<size_t>(i)], 20.0f, nyquistSafe);
+        eqChannels_[ch].bands[static_cast<size_t>(i)].update(Biquad::Type::Peaking, freq, 1.35f, 0.0f);
+      }
+      limiterStates_[ch].envelope = 0.0f;
+      limiterStates_[ch].gain = 1.0f;
+    }
+    eqSmoothingCoeff_ = coeffFromMs(20.0f, sampleRate_);
+    updateEqSafetyAndTargets();
+  }
+
   void initMono() {
     DerivedFreq d = getDerivedFrequencies(sweepFreq_, width_);
 
@@ -793,6 +804,84 @@ class EpicenterEngine {
     monoState_.band110.update(Biquad::Type::Bandpass, d.detector110, 1.8f);
     monoState_.synthHighpass.update(Biquad::Type::Highpass, d.synthHighHz, 0.707f);
     monoState_.synthLowpass.update(Biquad::Type::Lowpass, d.synthLowHz, 0.707f);
+  }
+
+  void updateSubSpongeVoicing(float intensityNorm, float widthNorm) {
+    // Voicing inspirado en "Bass Boost" (low-shelf fijo + saturación suave)
+    // para reforzar subgrave con ataque más redondo/esponjoso sin romper voces.
+    const float targetBoostDb = clampf(
+      SUB_SPONGE_BOOST_MIN_DB + intensityNorm * (SUB_SPONGE_BOOST_MAX_DB - SUB_SPONGE_BOOST_MIN_DB),
+      SUB_SPONGE_BOOST_MIN_DB,
+      SUB_SPONGE_BOOST_MAX_DB
+    );
+    const float targetFreqHz = clampf(
+      SUB_SPONGE_FREQ_MIN_HZ + widthNorm * (SUB_SPONGE_FREQ_MAX_HZ - SUB_SPONGE_FREQ_MIN_HZ),
+      SUB_SPONGE_FREQ_MIN_HZ,
+      SUB_SPONGE_FREQ_MAX_HZ
+    );
+
+    if (std::fabs(targetBoostDb - subSpongeBoostDb_) < 0.02f && std::fabs(targetFreqHz - subSpongeFreqHz_) < 0.1f) {
+      return;
+    }
+
+    subSpongeBoostDb_ = targetBoostDb;
+    subSpongeFreqHz_ = targetFreqHz;
+    for (auto& c : channels_) {
+      c.subSpongeShelf.update(Biquad::Type::LowShelf, subSpongeFreqHz_, 0.8f, subSpongeBoostDb_);
+    }
+  }
+
+  void updateEqSafetyAndTargets() {
+    float maxBoostDb = 0.0f;
+    for (int i = 0; i < EQ_BAND_COUNT; ++i) {
+      maxBoostDb = std::max(maxBoostDb, std::max(0.0f, eqTargetGainsDb_[static_cast<size_t>(i)]));
+    }
+    autoEqPreampDb_ = -(maxBoostDb * EQ_AUTO_PREAMP_FACTOR + (maxBoostDb > 0.0f ? EQ_AUTO_PREAMP_MARGIN_DB : 0.0f));
+    const float totalPreampDb = clampf(userEqPreampDb_ + autoEqPreampDb_, -30.0f, 0.0f);
+    eqTotalPreampLinear_ = std::pow(10.0f, totalPreampDb / 20.0f);
+  }
+
+  float processEqAndLimiter(float sample, int ch) {
+    if (!eqEnabled_) {
+      return applySoftLimiter(sample, ch);
+    }
+
+    float out = sample * eqTotalPreampLinear_;
+    EqChannelState& eqState = eqChannels_[std::min(ch, 1)];
+
+    for (int i = 0; i < EQ_BAND_COUNT; ++i) {
+      float& currentDb = eqCurrentGainsDb_[static_cast<size_t>(i)];
+      const float targetDb = eqTargetGainsDb_[static_cast<size_t>(i)];
+      currentDb = targetDb + eqSmoothingCoeff_ * (currentDb - targetDb);
+      float effectiveDb = clampf(currentDb, EQ_INTERNAL_CUT_MIN_DB, EQ_INTERNAL_BOOST_MAX_DB);
+      float linear = std::pow(10.0f, effectiveDb / 20.0f);
+      if (linear > EQ_SAFE_GAIN_MAX_LINEAR) {
+        effectiveDb = 20.0f * std::log10(EQ_SAFE_GAIN_MAX_LINEAR);
+      }
+      eqState.bands[static_cast<size_t>(i)].update(Biquad::Type::Peaking, kEqFrequenciesHz[static_cast<size_t>(i)], 1.35f, effectiveDb);
+      out = eqState.bands[static_cast<size_t>(i)].process(out);
+    }
+
+    return applySoftLimiter(out, ch);
+  }
+
+  float applySoftLimiter(float sample, int ch) {
+    LimiterState& lim = limiterStates_[std::min(ch, 1)];
+    const float absSample = std::fabs(sample);
+    const float envCoeff = absSample > lim.envelope ? coeffFromMs(1.5f, sampleRate_) : coeffFromMs(35.0f, sampleRate_);
+    lim.envelope = absSample + envCoeff * (lim.envelope - absSample);
+
+    float gainTarget = 1.0f;
+    if (lim.envelope > LIMITER_THRESHOLD) {
+      gainTarget = LIMITER_THRESHOLD / (lim.envelope + 1e-6f);
+    }
+    gainTarget = clampf(gainTarget, LIMITER_GAIN_FLOOR, 1.0f);
+    const float gainCoeff = gainTarget < lim.gain ? coeffFromMs(0.6f, sampleRate_) : coeffFromMs(45.0f, sampleRate_);
+    lim.gain = gainTarget + gainCoeff * (lim.gain - gainTarget);
+
+    const float limited = sample * lim.gain;
+    const float soft = std::tanh(limited * 1.65f) / std::tanh(1.65f);
+    return denormalFloor(soft * LIMITER_MIX + limited * (1.0f - LIMITER_MIX));
   }
 
   void updateSubSpongeVoicing(float intensityNorm, float widthNorm) {
@@ -1055,6 +1144,63 @@ Java_com_epicenter_hifi_NativeEpicenterJni_nativeSetParams(
   EpicenterEngine* engine = fromHandle(handle);
   if (!engine) return;
   engine->setParams(enabled == JNI_TRUE, sweepFreq, width, intensity, balance, volume);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_epicenter_hifi_NativeEpicenterJni_nativeSetEqEnabled(
+  JNIEnv*,
+  jclass,
+  jlong handle,
+  jboolean enabled
+) {
+  EpicenterEngine* engine = fromHandle(handle);
+  if (!engine) return;
+  engine->setEqEnabled(enabled == JNI_TRUE);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_epicenter_hifi_NativeEpicenterJni_nativeSetEqPreampDb(
+  JNIEnv*,
+  jclass,
+  jlong handle,
+  jfloat preampDb
+) {
+  EpicenterEngine* engine = fromHandle(handle);
+  if (!engine) return;
+  engine->setEqPreampDb(preampDb);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_epicenter_hifi_NativeEpicenterJni_nativeSetEqBand(
+  JNIEnv*,
+  jclass,
+  jlong handle,
+  jint index,
+  jfloat gainDb
+) {
+  EpicenterEngine* engine = fromHandle(handle);
+  if (!engine) return;
+  engine->setEqBand(index, gainDb);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_epicenter_hifi_NativeEpicenterJni_nativeSetEqBands(
+  JNIEnv* env,
+  jclass,
+  jlong handle,
+  jfloatArray gainsDb
+) {
+  EpicenterEngine* engine = fromHandle(handle);
+  if (!engine) return;
+  if (!gainsDb) {
+    engine->setEqBands(nullptr, 0);
+    return;
+  }
+
+  const jsize len = env->GetArrayLength(gainsDb);
+  jfloat* values = env->GetFloatArrayElements(gainsDb, nullptr);
+  engine->setEqBands(values, static_cast<int>(len));
+  env->ReleaseFloatArrayElements(gainsDb, values, JNI_ABORT);
 }
 
 extern "C" JNIEXPORT void JNICALL
