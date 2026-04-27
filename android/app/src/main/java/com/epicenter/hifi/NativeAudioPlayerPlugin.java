@@ -83,6 +83,7 @@ public class NativeAudioPlayerPlugin extends Plugin {
 
     @Override
     public void onMediaItemTransition(MediaItem mediaItem, int reason) {
+      NativeAudioPlaybackService.resetDspState();
       emitPlaybackState();
     }
   };
@@ -143,6 +144,7 @@ public class NativeAudioPlayerPlugin extends Plugin {
 
           controller.setMediaItem(item);
           controller.prepare();
+          NativeAudioPlaybackService.resetDspState();
           emitPlaybackState();
           call.resolve(createStatePayload());
         } catch (Exception error) {
@@ -186,6 +188,7 @@ public class NativeAudioPlayerPlugin extends Plugin {
       long target = Math.max(0, (long) (positionSeconds * 1000L));
       runWhenControllerReady(call, () -> {
         controller.seekTo(target);
+        NativeAudioPlaybackService.resetDspState();
         emitPlaybackState();
         call.resolve(createStatePayload());
       });
@@ -198,6 +201,7 @@ public class NativeAudioPlayerPlugin extends Plugin {
       if (controller != null) {
         controller.stop();
         controller.clearMediaItems();
+        NativeAudioPlaybackService.resetDspState();
       }
       emitPlaybackState();
       call.resolve(createStatePayload());
