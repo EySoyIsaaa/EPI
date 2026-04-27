@@ -129,6 +129,54 @@ struct ChannelState {
   Biquad subLowpass;
   Biquad outputDcHighpass;
   EnvelopeFollower voiceEnv;
+
+  struct LowShelfFilter {
+    float sr = 48000.0f;
+    float freq = 80.0f;
+    float gainDb = 0.0f;
+
+    float b0 = 1.0f, b1 = 0.0f, b2 = 0.0f;
+    float a1 = 0.0f, a2 = 0.0f;
+
+    float x1 = 0.0f, x2 = 0.0f;
+    float y1 = 0.0f, y2 = 0.0f;
+
+    void update(float newFreq, float newGainDb) {
+      freq = clampf(newFreq, 10.0f, sr * 0.45f);
+      gainDb = newGainDb;
+
+      const float A = std::pow(10.0f, gainDb / 40.0f);
+      const float omega = TWO_PI * freq / sr;
+      const float cosOmega = std::cos(omega);
+      const float sinOmega = std::sin(omega);
+      const float alpha = sinOmega * std::sqrt(2.0f) * 0.5f;
+      const float sqrtA = std::sqrt(A);
+      const float twoSqrtAAlpha = 2.0f * sqrtA * alpha;
+
+      float lb0 = A * ((A + 1.0f) - (A - 1.0f) * cosOmega + twoSqrtAAlpha);
+      float lb1 = 2.0f * A * ((A - 1.0f) - (A + 1.0f) * cosOmega);
+      float lb2 = A * ((A + 1.0f) - (A - 1.0f) * cosOmega - twoSqrtAAlpha);
+      float la0 = (A + 1.0f) + (A - 1.0f) * cosOmega + twoSqrtAAlpha;
+      float la1 = -2.0f * ((A - 1.0f) + (A + 1.0f) * cosOmega);
+      float la2 = (A + 1.0f) + (A - 1.0f) * cosOmega - twoSqrtAAlpha;
+
+      b0 = lb0 / la0;
+      b1 = lb1 / la0;
+      b2 = lb2 / la0;
+      a1 = la1 / la0;
+      a2 = la2 / la0;
+    }
+
+    float process(float sample) {
+      const float clean = denormalFloor(sample);
+      const float y0 = b0 * clean + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+      x2 = denormalFloor(x1);
+      x1 = clean;
+      y2 = denormalFloor(y1);
+      y1 = denormalFloor(y0);
+      return denormalFloor(y0);
+    }
+  } bassBoost;
 };
 
 struct MonoState {
@@ -207,7 +255,25 @@ class EpicenterEngine {
       lastSweepFreq_ = sweepFreq_;
       lastWidth_ = width_;
     }
+
+    updateBassBoostFilters();
   }
+
+  void resetState() {
+    for (auto& c : channels_) {
+      initChannel(c);
+    }
+    initMono();
+    subBuffer_.clear();
+    updateDerivedFilters();
+    updateBassBoostFilters();
+  }
+
+  // Compatibility no-op setters (UI may call EQ APIs while native chain is Epicenter+bassBoost only).
+  void setEqEnabled(bool /*enabled*/) {}
+  void setEqPreampDb(float /*preampDb*/) {}
+  void setEqBand(int /*index*/, float /*gainDb*/) {}
+  void setEqBands(const jfloat* /*gainsDb*/, int /*len*/) {}
 
   void processPcm16(const int16_t* in, int16_t* out, int frameCount, int channelCount) {
     if (!in || !out || frameCount <= 0) return;
@@ -298,6 +364,8 @@ class EpicenterEngine {
         const float generatedSub = state.subLowpass.process(subBuffer_[static_cast<size_t>(i)]) * (0.4f + voiceProtection * 0.6f);
 
         float mixed = voicePath + shapedBassProgram + generatedSub;
+        mixed = state.bassBoost.process(mixed);
+
         const float protectionGain = 0.94f + voiceProtection * 0.06f;
 
         mixed *= volumeGain * protectionGain;
@@ -324,6 +392,9 @@ class EpicenterEngine {
   float lastSweepFreq_ = -1.0f;
   float lastWidth_ = -1.0f;
 
+  float bassBoostFreq_ = 60.0f;
+  float bassBoostGainDb_ = 0.0f;
+
   ChannelState channels_[2];
   MonoState monoState_;
   std::vector<float> subBuffer_;
@@ -336,6 +407,9 @@ class EpicenterEngine {
     c.lowMidDip.sr = sampleRate_;
     c.subLowpass.sr = sampleRate_;
     c.outputDcHighpass.sr = sampleRate_;
+
+    c.bassBoost.sr = sampleRate_;
+    c.bassBoost.update(d.subTopHz, 0.0f);
 
     c.voiceHighpass.update(Biquad::Type::Highpass, d.crossoverHz, 0.707f);
     c.bassLowpass.update(Biquad::Type::Lowpass, d.crossoverHz * 1.15f, 0.707f);
@@ -398,6 +472,17 @@ class EpicenterEngine {
     monoState_.band110.update(Biquad::Type::Bandpass, d.detector110, 1.8f);
     monoState_.synthHighpass.update(Biquad::Type::Highpass, d.synthHighHz, 0.707f);
     monoState_.synthLowpass.update(Biquad::Type::Lowpass, d.synthLowHz, 0.707f);
+
+    bassBoostFreq_ = d.subTopHz;
+  }
+
+  void updateBassBoostFilters() {
+    float intensityNorm = clampf(intensity_ / 100.0f, 0.0f, 1.0f);
+    bassBoostGainDb_ = intensityNorm * 9.0f;
+    for (auto& c : channels_) {
+      c.bassBoost.sr = sampleRate_;
+      c.bassBoost.update(bassBoostFreq_, bassBoostGainDb_);
+    }
   }
 
   static float computeGate(float monoEnv, float diffEnv, float weightedDetectorEnv) {
@@ -437,6 +522,13 @@ Java_com_epicenter_hifi_NativeEpicenterJni_nativeRelease(JNIEnv*, jclass, jlong 
 }
 
 extern "C" JNIEXPORT void JNICALL
+Java_com_epicenter_hifi_NativeEpicenterJni_nativeResetState(JNIEnv*, jclass, jlong handle) {
+  EpicenterEngine* engine = fromHandle(handle);
+  if (!engine) return;
+  engine->resetState();
+}
+
+extern "C" JNIEXPORT void JNICALL
 Java_com_epicenter_hifi_NativeEpicenterJni_nativeSetParams(
   JNIEnv*,
   jclass,
@@ -451,6 +543,64 @@ Java_com_epicenter_hifi_NativeEpicenterJni_nativeSetParams(
   EpicenterEngine* engine = fromHandle(handle);
   if (!engine) return;
   engine->setParams(enabled == JNI_TRUE, sweepFreq, width, intensity, balance, volume);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_epicenter_hifi_NativeEpicenterJni_nativeSetEqEnabled(
+  JNIEnv*,
+  jclass,
+  jlong handle,
+  jboolean enabled
+) {
+  EpicenterEngine* engine = fromHandle(handle);
+  if (!engine) return;
+  engine->setEqEnabled(enabled == JNI_TRUE);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_epicenter_hifi_NativeEpicenterJni_nativeSetEqPreampDb(
+  JNIEnv*,
+  jclass,
+  jlong handle,
+  jfloat preampDb
+) {
+  EpicenterEngine* engine = fromHandle(handle);
+  if (!engine) return;
+  engine->setEqPreampDb(preampDb);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_epicenter_hifi_NativeEpicenterJni_nativeSetEqBand(
+  JNIEnv*,
+  jclass,
+  jlong handle,
+  jint index,
+  jfloat gainDb
+) {
+  EpicenterEngine* engine = fromHandle(handle);
+  if (!engine) return;
+  engine->setEqBand(index, gainDb);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_epicenter_hifi_NativeEpicenterJni_nativeSetEqBands(
+  JNIEnv* env,
+  jclass,
+  jlong handle,
+  jfloatArray gainsDb
+) {
+  EpicenterEngine* engine = fromHandle(handle);
+  if (!engine) return;
+
+  if (!gainsDb) {
+    engine->setEqBands(nullptr, 0);
+    return;
+  }
+
+  const jsize len = env->GetArrayLength(gainsDb);
+  jfloat* values = env->GetFloatArrayElements(gainsDb, nullptr);
+  engine->setEqBands(values, static_cast<int>(len));
+  env->ReleaseFloatArrayElements(gainsDb, values, JNI_ABORT);
 }
 
 extern "C" JNIEXPORT void JNICALL
