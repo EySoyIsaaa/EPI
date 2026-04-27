@@ -40,4 +40,14 @@ final class NativeEpicenterJni {
     int frameCount,
     int channelCount
   );
+
+  static native void nativeProcessFloat(
+    long handle,
+    ByteBuffer input,
+    ByteBuffer output,
+    int frameCount,
+    int channelCount
+  );
+
+  static native void nativeResetState(long handle);
 }

@@ -22,15 +22,18 @@ final class EpicenterNativeAudioProcessor extends BaseAudioProcessor {
   private int configuredEncoding = C.ENCODING_INVALID;
   private long processedFrames = 0L;
   private long nextDebugFrameMark = 0L;
-
-  private ByteBuffer tempInPcm16 = EMPTY_BUFFER;
-  private ByteBuffer tempOutPcm16 = EMPTY_BUFFER;
+  private long lastAppliedSettingsVersion = -1L;
 
   @Override
   public @NonNull AudioFormat onConfigure(@NonNull AudioFormat inputAudioFormat) throws UnhandledAudioFormatException {
     if (inputAudioFormat.encoding != C.ENCODING_PCM_16BIT && inputAudioFormat.encoding != C.ENCODING_PCM_FLOAT) {
       throw new UnhandledAudioFormatException(inputAudioFormat);
     }
+
+    boolean formatChanged =
+      configuredSampleRate != inputAudioFormat.sampleRate
+      || configuredChannels != inputAudioFormat.channelCount
+      || configuredEncoding != inputAudioFormat.encoding;
 
     configuredSampleRate = inputAudioFormat.sampleRate;
     configuredChannels = inputAudioFormat.channelCount;
@@ -55,7 +58,7 @@ final class EpicenterNativeAudioProcessor extends BaseAudioProcessor {
     }
 
     ensureNative();
-    applyCurrentSettings();
+    applyCurrentSettings(false);
 
     int inputBytes = inputBuffer.remaining();
     ByteBuffer outputBuffer = replaceOutputBuffer(inputBytes).order(ByteOrder.nativeOrder());
@@ -89,38 +92,13 @@ final class EpicenterNativeAudioProcessor extends BaseAudioProcessor {
 
     if (configuredEncoding == C.ENCODING_PCM_FLOAT) {
       int frameCount = inputBytes / (BYTES_PER_SAMPLE_FLOAT * channelCount);
-      int sampleCount = frameCount * channelCount;
-      int pcm16Bytes = sampleCount * BYTES_PER_SAMPLE_PCM16;
-
-      ensureTempPcm16Capacity(pcm16Bytes);
-      tempInPcm16.clear();
-      tempOutPcm16.clear();
-      tempInPcm16.limit(pcm16Bytes);
-      tempOutPcm16.limit(pcm16Bytes);
-
-      ByteBuffer inputView = inputBuffer.duplicate().order(ByteOrder.nativeOrder());
-      for (int i = 0; i < sampleCount; i++) {
-        float sample = inputView.getFloat();
-        short s = floatToPcm16(sample);
-        tempInPcm16.putShort(s);
-      }
-
-      tempInPcm16.position(0);
-      tempOutPcm16.position(0);
-
-      NativeEpicenterJni.nativeProcessPcm16(
+      NativeEpicenterJni.nativeProcessFloat(
         nativeHandle,
-        tempInPcm16,
-        tempOutPcm16,
+        inputBuffer,
+        outputBuffer,
         frameCount,
         channelCount
       );
-
-      tempOutPcm16.position(0);
-      for (int i = 0; i < sampleCount; i++) {
-        short s = tempOutPcm16.getShort();
-        outputBuffer.putFloat(pcm16ToFloat(s));
-      }
 
       processedFrames += frameCount;
       maybeLogProcessing();
@@ -146,12 +124,17 @@ final class EpicenterNativeAudioProcessor extends BaseAudioProcessor {
     configuredSampleRate = -1;
     configuredChannels = -1;
     configuredEncoding = C.ENCODING_INVALID;
-    tempInPcm16 = EMPTY_BUFFER;
-    tempOutPcm16 = EMPTY_BUFFER;
+    lastAppliedSettingsVersion = -1L;
   }
 
   void refreshSettings() {
-    applyCurrentSettings();
+    applyCurrentSettings(true);
+  }
+
+  void resetState() {
+    if (nativeHandle != 0L) {
+      NativeEpicenterJni.nativeResetState(nativeHandle);
+    }
   }
 
   private void ensureNative() {
@@ -168,7 +151,7 @@ final class EpicenterNativeAudioProcessor extends BaseAudioProcessor {
     }
   }
 
-  private void applyCurrentSettings() {
+  private void applyCurrentSettings(boolean force) {
     if (nativeHandle == 0L) {
       return;
     }
@@ -206,22 +189,4 @@ final class EpicenterNativeAudioProcessor extends BaseAudioProcessor {
     }
   }
 
-  private void ensureTempPcm16Capacity(int requiredBytes) {
-    if (tempInPcm16.capacity() >= requiredBytes && tempOutPcm16.capacity() >= requiredBytes) {
-      return;
-    }
-    tempInPcm16 = ByteBuffer.allocateDirect(requiredBytes).order(ByteOrder.nativeOrder());
-    tempOutPcm16 = ByteBuffer.allocateDirect(requiredBytes).order(ByteOrder.nativeOrder());
-  }
-
-  private static short floatToPcm16(float sample) {
-    float clamped = Math.max(-1f, Math.min(1f, sample));
-    int value = Math.round(clamped * 32767f);
-    value = Math.max(-32768, Math.min(32767, value));
-    return (short) value;
-  }
-
-  private static float pcm16ToFloat(short sample) {
-    return sample / 32768f;
-  }
 }
