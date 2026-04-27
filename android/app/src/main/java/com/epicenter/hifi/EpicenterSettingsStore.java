@@ -33,6 +33,7 @@ final class EpicenterSettingsStore {
     intensity = clamp(newIntensity, 0f, 100f);
     balance = clamp(newBalance, 0f, 100f);
     volume = clamp(newVolume, 0f, 100f);
+    version++;
   }
 
   static synchronized Snapshot snapshot() {
